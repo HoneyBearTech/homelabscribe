@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from homelabscribe import store
+from homelabscribe import manual, store
 from homelabscribe.collectors.docker import DockerCollector
 from homelabscribe.collectors.proxmox import ProxmoxCollector
 from homelabscribe.config import Config
@@ -47,6 +47,11 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
             continue
         snap.hosts += hosts
         snap.services += services
+
+    if cfg.manual_services:
+        manual_hosts, manual_services = manual.build(cfg.manual_services, {h.name for h in snap.hosts})
+        snap.hosts += manual_hosts
+        snap.services += manual_services
 
     enrich(snap.services, load_catalog(cfg.catalog_file))
 

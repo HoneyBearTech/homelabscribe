@@ -68,12 +68,13 @@ def parse_container(attrs: dict[str, Any], host: str) -> Service:
     )
 
 
-def parse_host(info: dict[str, Any], name: str, url: str) -> Host:
+def parse_host(info: dict[str, Any], name: str, url: str, link_host: str | None = None) -> Host:
     mem = info.get("MemTotal")
     return Host(
         name=name,
         kind="docker",
         address=None if url.startswith("unix://") else url,
+        link_host=link_host,
         os=info.get("OperatingSystem"),
         cpus=info.get("NCPU"),
         memory_gb=round(mem / 1024**3, 1) if mem else None,
@@ -97,7 +98,7 @@ class DockerCollector:
     def collect(self) -> tuple[list[Host], list[Service]]:
         # Low-level API returns the same attrs as `docker inspect` without extra calls.
         api = self.client.api
-        host = parse_host(api.info(), self.cfg.name, self.cfg.url)
+        host = parse_host(api.info(), self.cfg.name, self.cfg.url, self.cfg.link_host)
         services = [
             parse_container(api.inspect_container(c["Id"]), self.cfg.name) for c in api.containers(all=True)
         ]

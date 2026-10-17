@@ -9,6 +9,8 @@
 - {match: [recyclarr], name: Recyclarr, category: Media, description: "Keeps Sonarr and Radarr quality settings in sync with the TRaSH Guides."}
 - {match: [plex, pms-docker], name: Plex, category: Media, description: "Streams the movie, TV and music library to TVs and phones."}
 - {match: [jellyfin], name: Jellyfin, category: Media, description: "Streams the movie, TV and music library to TVs and phones."}
+- {match: [seerr], name: Seerr, category: Media, description: "Lets family members request movies and shows."}
+- {match: [whisparr], name: Whisparr, category: Media, description: "Finds and downloads adult videos automatically."}
 - {match: [overseerr, jellyseerr], name: Overseerr, category: Media, description: "Lets family members request movies and shows."}
 - {match: [tautulli], name: Tautulli, category: Media, description: "Shows who is watching what on Plex."}
 - {match: [qbittorrent, qbittorrent-nox], name: qBittorrent, category: Downloads, description: "Downloads files for the media apps."}
@@ -27,8 +29,8 @@
 - {match: [watchtower], name: Watchtower, category: Infrastructure, description: "Updates containers to new versions automatically."}
 - {match: [homepage], name: Homepage, category: Dashboards, description: "Start page with links to every app."}
 - {match: [homarr, dashy, heimdall], name: Dashboard, category: Dashboards, description: "Start page with links to every app."}
-- {match: [grafana], name: Grafana, category: Monitoring, description: "Dashboards and graphs for system health."}
-- {match: [prometheus], name: Prometheus, category: Monitoring, description: "Collects metrics from servers and apps."}
+- {match: [grafana, argus-grafana], name: Grafana, category: Monitoring, description: "Dashboards and graphs for system health."}
+- {match: [prometheus, argus-prometheus], name: Prometheus, category: Monitoring, description: "Collects metrics from servers and apps."}
 - {match: [node-exporter], name: Node Exporter, category: Monitoring, description: "Reports server CPU, memory and disk metrics to Prometheus."}
 - {match: [cadvisor], name: cAdvisor, category: Monitoring, description: "Reports container resource usage."}
 - {match: [loki], name: Loki, category: Monitoring, description: "Stores logs for searching in Grafana."}
@@ -46,3 +48,18 @@
 - {match: [postgres, postgresql], name: PostgreSQL, category: Databases, description: "Database used by another app."}
 - {match: [mariadb, mysql], name: MariaDB, category: Databases, description: "Database used by another app."}
 - {match: [redis, valkey], name: Redis, category: Databases, description: "Cache used by another app."}
+- {match: [dozzle], name: Dozzle, category: Infrastructure, description: "Shows live container logs in a web browser."}
+- {match: [autoheal], name: Autoheal, category: Infrastructure, description: "Restarts containers that Docker reports as unhealthy."}
+- {match: [argus-agent], name: Argus Agent, category: Monitoring, description: "Sends this host's metrics and container logs to the Argus Grafana dashboards."}
+- {match: [trash-watch], name: trash-watch, category: Media, description: "Checks daily whether the Recyclarr config has drifted from the TRaSH Guides and sends an alert."}
+- {match: [blackbox-exporter, blackbox_exporter, argus-blackbox], name: Blackbox Exporter, category: Monitoring, description: "Checks that services answer and that DNS resolves, for Prometheus."}
+- {match: [varken], name: Varken, category: Monitoring, description: "Reads Tautulli and the media apps' APIs and exposes Plex streaming stats to Prometheus."}
+- {match: [exportarr], name: Exportarr, category: Monitoring, description: "Exposes Sonarr, Radarr, Prowlarr or SABnzbd stats to Prometheus."}
+- {match: [snmp-exporter], name: SNMP Exporter, category: Monitoring, description: "Reads network gear, NAS and UPS stats over SNMP for Prometheus."}
+- {match: [tdarr-exporter], name: Tdarr Exporter, category: Monitoring, description: "Exposes Tdarr transcoding stats to Prometheus."}
+- {match: [prometheus-pve-exporter], name: Proxmox Exporter, category: Monitoring, description: "Exposes Proxmox VE node and guest stats to Prometheus."}
+- {match: [qbittorrent-exporter], name: qBittorrent Exporter, category: Monitoring, description: "Exposes qBittorrent stats to Prometheus."}
+- {match: [gitlab-ci-pipelines-exporter], name: GitLab CI Exporter, category: Monitoring, description: "Exposes GitLab CI pipeline stats to Prometheus."}
+- {match: [unpoller], name: UniFi Poller, category: Monitoring, description: "Exposes UniFi network and internet stats to Prometheus."}
+- {match: [pihole-exporter], name: Pi-hole Exporter, category: Monitoring, description: "Exposes Pi-hole stats to Prometheus."}
+- {match: [peanut], name: PeaNUT, category: Monitoring, description: "Web dashboard for the UPS that also exposes its metrics to Prometheus."}

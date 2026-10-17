@@ -7,7 +7,7 @@ tags: [homelab, host]
 
 | | |
 | --- | --- |
-| Type | {{ "Docker host" if h.kind == "docker" else "Proxmox node" }} |
+| Type | {{ h.type_label }} |
 {% if h.address %}
 | Address | {{ h.address }} |
 {% endif %}

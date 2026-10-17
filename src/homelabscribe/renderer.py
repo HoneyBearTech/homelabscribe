@@ -12,6 +12,7 @@ from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 
 from homelabscribe import __version__, notes
 from homelabscribe.config import BreakGlassConfig
+from homelabscribe.enrich import image_base
 from homelabscribe.models import Host, Service, Snapshot
 
 WEB_PORTS = {
@@ -36,12 +37,25 @@ WEB_PORTS = {
     9696,
     32400,
 }
-DNS_IMAGES = ("pihole", "pi-hole", "adguardhome")
+DNS_IMAGES = frozenset({"pihole", "pi-hole", "adguardhome"})  # exact image names, so exporters do not match
 
 
 def slug(text: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return s or "item"
+
+
+# Variables every image sets for itself; listing them buries the ones the user actually configured.
+NOISE_ENV = frozenset(
+    {"PATH", "HOME", "TERM", "PS1", "LANG", "LANGUAGE", "TMPDIR", "HOSTNAME", "PWD", "SHLVL"}
+    | {"VIRTUAL_ENV", "LSIO_FIRST_PARTY"}
+)
+NOISE_ENV_PREFIXES = ("S6_", "XDG_", "LC_")
+
+
+def config_vars(names: list[str]) -> list[str]:
+    """Environment variable names worth showing: drops image defaults such as PATH and S6_*."""
+    return [n for n in names if n not in NOISE_ENV and not n.startswith(NOISE_ENV_PREFIXES)]
 
 
 def code_list(items: list[str]) -> str:
@@ -73,6 +87,7 @@ class Renderer:
             autoescape=False,
         )
         self.env.filters["code_list"] = code_list
+        self.env.filters["config_vars"] = config_vars
         self.written: list[Path] = []
         self.generated: set[Path] = set()
 
@@ -85,6 +100,7 @@ class Renderer:
         for s in services:
             titles[s.title.lower()] += 1
         host_slugs = {h.name: slug(h.name) for h in hosts}
+        link_hosts = {h.name: h.link_host or h.name for h in hosts}
         by_name = {(s.host, s.compose_project, s.compose_service): s for s in services if s.compose_service}
 
         def page(s: Service) -> str:
@@ -97,7 +113,7 @@ class Renderer:
             for p in s.ports:
                 if p.host and p.container in WEB_PORTS:
                     scheme = "https" if p.container in (443, 8443) else "http"
-                    return f"{scheme}://{s.host}:{p.host}"
+                    return f"{scheme}://{link_hosts.get(s.host, s.host)}:{p.host}"
             return None
 
         def deps(s: Service) -> list[Service]:
@@ -182,6 +198,7 @@ class Renderer:
                 by_category=sorted(by_cat.items()),
                 pro_pages=pro_pages,
                 running=sum(1 for s in services if s.status == "running"),
+                by_hand=sum(1 for s in services if s.kind == "manual"),
             ),
         )
         for s in services:
@@ -208,7 +225,9 @@ class Renderer:
             critical = [s for s in services if s.name.lower() in wanted or s.title.lower() in wanted]
             if not critical:
                 critical = [s for s in services if s.category not in ("Databases", "Infrastructure", "Other")]
-            dns = next((s for s in services if any(k in (s.image or "") for k in DNS_IMAGES)), None)
+            dns = next((s for s in services if s.is_dns), None) or next(
+                (s for s in services if image_base(s.image) in DNS_IMAGES), None
+            )
             self._write(
                 "break-glass.md",
                 self.env.get_template("breakglass.md.j2").render(

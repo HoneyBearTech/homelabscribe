@@ -31,12 +31,17 @@ class Mount(BaseModel):
 
 class Host(BaseModel):
     name: str
-    kind: Literal["docker", "proxmox-node"]
+    kind: Literal["docker", "proxmox-node", "manual"]
     address: str | None = None
+    link_host: str | None = None  # what service links should point at (hostname or IP)
     os: str | None = None
     cpus: int | None = None
     memory_gb: float | None = None
     version: str | None = None
+
+    @property
+    def type_label(self) -> str:
+        return {"docker": "Docker host", "proxmox-node": "Proxmox node"}.get(self.kind, "Added by hand")
 
 
 class Service(BaseModel):
@@ -44,7 +49,7 @@ class Service(BaseModel):
 
     name: str
     host: str
-    kind: Literal["container", "vm", "lxc"]
+    kind: Literal["container", "vm", "lxc", "manual"]
     status: str = "unknown"
     image: str | None = None
     ports: list[Port] = Field(default_factory=list)
@@ -62,6 +67,9 @@ class Service(BaseModel):
     memory_gb: float | None = None
     tags: list[str] = Field(default_factory=list)
     notes: str | None = None
+    # Hand-described services (config `manual_services`)
+    restart_hint: str | None = None
+    is_dns: bool = False
     # Filled in by enrichment
     display_name: str | None = None
     description: str | None = None
