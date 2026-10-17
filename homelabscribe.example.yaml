@@ -37,6 +37,15 @@ docker_hosts:
 #     restart: "Unplug the Pi, wait 10 seconds, plug it back in."
 #     # title / description / category: override the built-in catalog text
 
+# Notifications (Pro): a short message after a scan that found changes or could not read a source.
+# Opt-in, and sent only to the address below. A Discord webhook URL is a secret: keep it in an env var.
+# notify:
+#   - type: ntfy                      # ntfy topic URL; add `token:` if the topic needs a login
+#     url: https://ntfy.example.com/homelab
+#   - type: discord
+#     url: ${DISCORD_WEBHOOK_URL}
+#     on: [errors]                    # changes, errors (default: both)
+
 # Extra or overriding app descriptions (same format as the built-in catalog).
 # catalog_file: /config/catalog.yaml
 

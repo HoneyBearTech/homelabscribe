@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from homelabscribe import __version__, licensing, pipeline
+from homelabscribe import __version__, licensing, notify, pipeline
 from homelabscribe.config import Config, load_config
 
 app = typer.Typer(
@@ -39,6 +39,16 @@ def _report_scan(result: pipeline.ScanResult) -> None:
         typer.secho(f"  error: {msg}", fg="red")
     if result.diff and not result.diff.empty:
         typer.echo(f"{len(result.diff.changes)} change(s) since the last scan.")
+
+
+def _notify(cfg: Config, feats: frozenset[str], result: pipeline.ScanResult) -> None:
+    if not cfg.notify:
+        return
+    if "notify" not in feats:
+        typer.secho("Notifications need Pro. Skipped.", fg="yellow")
+        return
+    for msg in notify.notify_after_scan(cfg.notify, cfg.state_dir, result.diff, result.errors):
+        typer.secho(f"  notification failed: {msg}", fg="red")
 
 
 def _interval(text: str) -> int:
@@ -88,6 +98,7 @@ def run(
     while True:
         result = pipeline.scan(cfg, feats)
         _report_scan(result)
+        _notify(cfg, feats, result)
         written = pipeline.render(cfg, feats, result.snapshot)
         typer.echo(f"Updated {len(written)} file(s) in {cfg.output_dir}.")
         if not every:

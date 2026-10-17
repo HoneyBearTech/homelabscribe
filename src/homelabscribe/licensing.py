@@ -20,7 +20,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 # Public half of the license signing key (tools/make_keypair.py). Safe to publish.
 PUBLIC_KEY_B64 = "RFI1KL1MFmdq-ON_sPJm6TVwIC5KXwI4ybhu-y2aG5s="
 
-PRO_FEATURES = frozenset({"multi_host", "proxmox", "changelog", "breakglass", "diagrams", "schedule"})
+PRO_FEATURES = frozenset(
+    {"multi_host", "proxmox", "changelog", "breakglass", "diagrams", "schedule", "notify"}
+)
 
 
 class LicenseError(ValueError):
