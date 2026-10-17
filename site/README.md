@@ -15,6 +15,8 @@ A static site: plain HTML and CSS, no build step, no JavaScript, no third-party 
 
 `_headers` sets a strict Content-Security-Policy and other security headers; Pages applies it automatically.
 
+HSTS is sent from `_headers` (`max-age` six months, no `includeSubDomains` or `preload`), because Cloudflare's own HSTS toggle would not save. Raise `max-age` only once the domain will stay HTTPS-only for good.
+
 ## Launch switch
 
 The page starts in pre-launch mode: `<body class="prelaunch">` hides the GitHub, docs and install links and shows "Public release coming soon". When the repository and the PyPI package are public, remove `class="prelaunch"` from `<body>` in `index.html`.
