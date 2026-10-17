@@ -20,6 +20,10 @@ Write inside the block. HomelabScribe™ rewrites everything else but copies the
 
 HomelabScribe recognizes common self-hosted apps by image. Override per container with labels (`homelabscribe.name`, `homelabscribe.description`, `homelabscribe.category`, `homelabscribe.url`, `homelabscribe.hidden: "true"`), or add your own catalog file via `catalog_file` (same format as the built-in `catalog.yaml`).
 
+## Things the scanners can't see
+
+Pi-hole on a Raspberry Pi, a NAS or a router can't be scanned, so describe them in the config under `manual_services` (see `homelabscribe.example.yaml`). They get a normal page, appear in the index (marked "not scanned") and can be listed under `breakglass.critical`. Naming one `pihole` or `adguardhome`, or setting `dns: true`, makes the break-glass guide say it is the house's DNS server and which machine to restart.
+
 ## Pro features
 
 Multiple Docker hosts, Proxmox VMs/LXCs, the changelog page, the break-glass guide (configure `breakglass:`), the topology diagram and `--every` scheduling. Pro is unlocked by a license key checked offline ([security](../security.md)).

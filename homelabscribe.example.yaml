@@ -6,6 +6,7 @@ state_dir: /data/.homelabscribe   # snapshots and changelog history
 docker_hosts:
   - name: nova                       # how this host is named in the docs
     url: tcp://socket-proxy:2375      # or unix:///var/run/docker.sock
+    # link_host: atlas.lan            # hostname or IP used in service links (default: the name above)
   # - name: nas                       # more hosts need Pro
   #   url: tcp://192.168.1.20:2375
 
@@ -17,6 +18,15 @@ docker_hosts:
 #     token_name: docs
 #     token_value: ${PVE_TOKEN}
 #     verify_ssl: false              # self-signed certificate
+
+# Things the scanners can't see: Pi-hole on a Raspberry Pi, a NAS, a router. They get normal pages,
+# appear in the index, and can be listed under breakglass.critical. Only `name` and `host` are required.
+# manual_services:
+#   - name: pihole                    # known names (pihole, adguardhome) also mark the house DNS server
+#     host: pi                        # a scanned host, or any new name to add a hand-described machine
+#     url: http://192.168.1.2/admin
+#     restart: "Unplug the Pi, wait 10 seconds, plug it back in."
+#     # title / description / category: override the built-in catalog text
 
 # Extra or overriding app descriptions (same format as the built-in catalog).
 # catalog_file: /config/catalog.yaml
