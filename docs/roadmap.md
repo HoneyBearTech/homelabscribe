@@ -22,7 +22,7 @@ Plans for roughly the next twelve months. Dates are intentions, not promises; th
 - Keep the container base image pinned by digest (Dependabot updates it)
 - Reproducible release builds where practical
 
-## What HomelabScribe will not do
+## What HomelabScribe™ will not do
 - Change, restart, create or delete anything on your hosts. It is read-only by design
 - Phone home: no telemetry, update checks or license calls
 - Store secret values (env var values, tokens, passwords)

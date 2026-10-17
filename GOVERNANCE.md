@@ -1,6 +1,6 @@
 # Governance
 
-HomelabScribe is a small open-core project run by one maintainer. This document says who decides what, who has access, and what happens if the maintainer is unavailable.
+HomelabScribe™ is a small open-core project run by one maintainer. This document says who decides what, who has access, and what happens if the maintainer is unavailable.
 
 ## Roles
 

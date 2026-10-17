@@ -1,6 +1,6 @@
 # Interfaces
 
-HomelabScribe has no network API and listens on no port, so there is no OpenAPI document. Its external interfaces are below.
+HomelabScribe™ has no network API and listens on no port, so there is no OpenAPI document. Its external interfaces are below.
 
 ## Command line
 

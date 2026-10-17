@@ -1,4 +1,4 @@
-# Contributing to HomelabScribe
+# Contributing to HomelabScribe™
 
 Thanks for helping. This page covers how to report problems, propose changes and get a pull request merged.
 

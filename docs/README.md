@@ -1,4 +1,4 @@
-# HomelabScribe documentation
+# HomelabScribe™ documentation
 
 | Document | What it covers |
 | --- | --- |
@@ -15,4 +15,4 @@
 | [Roadmap](roadmap.md) | The next ~12 months, and what HomelabScribe will not do |
 | [Accessibility and internationalization](accessibility.md) | Status for a CLI that writes Markdown |
 
-Project policies: [Security policy](../SECURITY.md) · [Contributing](../CONTRIBUTING.md) · [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Changelog](../CHANGELOG.md)
+Project policies: [Security policy](../SECURITY.md) · [Contributing](../CONTRIBUTING.md) · [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Changelog](../CHANGELOG.md) · [Trademarks](../TRADEMARKS.md)

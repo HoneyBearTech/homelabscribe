@@ -2,7 +2,7 @@
 
 ## Accessibility
 
-HomelabScribe is a command-line tool that writes plain Markdown; it has no graphical UI. Output is plain text with heading structure and tables, which works with screen readers and any Markdown viewer. CLI output does not rely on color alone (warnings and errors are labelled with the words `skipped:` and `error:`). Diagrams (Pro `topology.md`) are Mermaid text, so the underlying relationships stay readable as text.
+HomelabScribe™ is a command-line tool that writes plain Markdown; it has no graphical UI. Output is plain text with heading structure and tables, which works with screen readers and any Markdown viewer. CLI output does not rely on color alone (warnings and errors are labelled with the words `skipped:` and `error:`). Diagrams (Pro `topology.md`) are Mermaid text, so the underlying relationships stay readable as text.
 
 ## Internationalization
 

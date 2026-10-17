@@ -6,7 +6,7 @@
 - **Something is broken:** open a bug report and attach `homelabscribe doctor` output.
 - **Security issue:** follow [SECURITY.md](SECURITY.md); do not post it publicly.
 
-HomelabScribe is maintained by one person in spare time. Expect a first reply within about a week; there is no guaranteed response time for free support.
+HomelabScribe™ is maintained by one person in spare time. Expect a first reply within about a week; there is no guaranteed response time for free support.
 
 ## Supported versions and maintenance window
 
