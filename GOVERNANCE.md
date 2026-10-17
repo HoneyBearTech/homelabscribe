@@ -15,6 +15,12 @@ Additional maintainers may be added after a sustained record of good contributio
 
 Day-to-day decisions are made in issues and pull requests. The maintainer decides when there is disagreement, explains the reasoning in the thread and records significant decisions in the changelog or docs. The [roadmap](docs/roadmap.md) states what the project will and will not do.
 
+## Reviews and merging
+
+Every change reaches `main` through a pull request. The `main protection` ruleset requires: the CI, CodeQL, dependency-review and DCO checks to pass, with the branch up to date; one approving review from a code owner ([`.github/CODEOWNERS`](.github/CODEOWNERS)), given after the last push, with stale approvals dismissed on new commits; and it blocks force pushes and deletion for everyone.
+
+This project has one maintainer, and GitHub does not let an author approve their own pull request. So the repository-admin role (the maintainer) has a **pull-request-only bypass** of the approval requirement: the maintainer can merge their own pull request once the checks pass, but cannot push to `main` directly. The practical effect is that every change is still public, still goes through the full set of automated checks, and is still recorded as a pull request, but is not independently reviewed by a second person. OpenSSF Scorecard's Code-Review check therefore scores this repository 0 until a second reviewer exists. That is stated here instead of hidden, and any additional maintainer will be asked to review.
+
 ## Access to sensitive resources
 
 Who can reach what, and through which credential. This is the list of people (one) and automation with access to sensitive resources.

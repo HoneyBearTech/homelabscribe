@@ -45,6 +45,10 @@ The maintainer also keeps a copy on a self-hosted GitLab, mirrored from GitHub b
 [`.gitlab-ci.yml`](.gitlab-ci.yml), which re-runs the lint, tests and secret scan on every commit it receives.
 Changes go to GitHub only; a commit made on the GitLab copy stops the mirror.
 
+### Fuzzing
+
+The parsers also run under coverage-guided fuzzing (Atheris), driven by the same Hypothesis properties as the unit tests in `tests/test_fuzz_parsers.py`: a short run on pull requests that touch the code and a longer one weekly (`.github/workflows/fuzz.yml`). Atheris has wheels for Linux x86_64 only, so locally use an amd64 container or let CI do it. To replay a finding: `python fuzz/fuzz_properties.py <target> <crash-file>` (targets are listed in [`fuzz/fuzz_properties.py`](fuzz/fuzz_properties.py)). New parsers get a property in that test file and a target in the harness.
+
 ## Rules the project holds itself to
 
 - **Read-only.** Collectors must never call anything that changes a container, VM or host.

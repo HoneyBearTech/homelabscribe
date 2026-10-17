@@ -12,9 +12,14 @@ WORKDIR /app
 # Dependencies first, from a hash-pinned lockfile (regenerate it as described in docs/dependencies.md).
 COPY requirements/runtime.txt ./requirements.txt
 RUN pip install --no-cache-dir --require-hashes -r requirements.txt
-COPY pyproject.toml README.md LICENSE ./
+# The project is pure Python, so it runs from its source directory: nothing is pip-installed from outside the
+# hash-pinned lockfile above, and there is no unpinned install step.
+COPY LICENSE ./LICENSE
 COPY src ./src
-RUN pip install --no-cache-dir --no-deps . && useradd --uid 1000 --create-home homelabscribe
+ENV PYTHONPATH=/app/src
+RUN printf '#!/bin/sh\nexec python -m homelabscribe.cli "$@"\n' > /usr/local/bin/homelabscribe \
+    && chmod 0755 /usr/local/bin/homelabscribe \
+    && useradd --uid 1000 --create-home homelabscribe
 
 USER homelabscribe
 WORKDIR /data
