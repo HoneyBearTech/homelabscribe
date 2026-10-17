@@ -6,7 +6,7 @@ Direct runtime dependencies are listed in [`pyproject.toml`](../pyproject.toml):
 
 ## Obtaining
 
-Dependencies are installed with pip from PyPI by the standard build tooling (`pip install .` / `python -m build`); the Docker image is built from the official `python:3.12-slim` image, pinned by digest in the `Dockerfile` (Dependabot proposes digest updates). There are no vendored copies and no committed binaries.
+Dependencies are installed with pip from PyPI by the standard build tooling (`pip install .` / `python -m build`); the Docker image is built from the official `python:3.14-slim` image, pinned by digest in the `Dockerfile` (Dependabot proposes digest updates). There are no vendored copies and no committed binaries.
 
 ## Pinning
 
@@ -17,6 +17,8 @@ uv pip compile pyproject.toml --extra dev --universal --generate-hashes --python
 ```
 
 Dependabot proposes updates to the lockfiles weekly, in one grouped pull request.
+
+The images used by the pipeline of the GitLab copy (Python, git, gitleaks, actionlint in [`.gitlab-ci.yml`](../.gitlab-ci.yml)) are pinned by version tag and digest. Dependabot does not read that file, so they are bumped by hand at least every quarter.
 
 ## Tracking
 

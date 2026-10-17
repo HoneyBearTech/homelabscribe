@@ -41,6 +41,10 @@ When you change dependencies in `pyproject.toml`, regenerate the hash-pinned loc
 4. **Small, focused commits** with imperative subject lines.
 5. **Docs and changelog** updated when behavior changes (`docs/`, `CHANGELOG.md` under "Unreleased").
 
+The maintainer also keeps a copy on a self-hosted GitLab, mirrored from GitHub by a scheduled job in
+[`.gitlab-ci.yml`](.gitlab-ci.yml), which re-runs the lint, tests and secret scan on every commit it receives.
+Changes go to GitHub only; a commit made on the GitLab copy stops the mirror.
+
 ## Rules the project holds itself to
 
 - **Read-only.** Collectors must never call anything that changes a container, VM or host.

@@ -66,6 +66,12 @@ Pipeline: **collectors → enrichment → snapshot (JSON) → diff → renderers
 - Public docs live in `docs/` (tracked). Generated output defaults to `homelabscribe-docs/` (git-ignored).
 - Commits: small, imperative subject lines, signed off (`git commit -s`, DCO). Release by tagging `vX.Y.Z` (see `/release`).
 
+- GitLab copy: the owner's self-hosted GitLab (CE, LAN only; details in Chronos) holds a mirror. GitHub stays
+  the home (OpenSSF badges, Scorecard, Dependabot, releases, Sigstore signing); every change goes to GitHub
+  as a PR, never to GitLab. `.gitlab-ci.yml` mirrors GitHub on a schedule (fast-forward only, `MIRROR_TOKEN`
+  CI/CD variable) and re-runs the daemon-free checks (`checks`, `gitleaks`, `actionlint`). Its images are
+  pinned by tag and digest and bumped by hand; no host names of the GitLab go in this repository.
+
 ## Context
 
 - Owner: HoneyBearTech (GitHub). Repo is private until launch, then public. Treat everything
