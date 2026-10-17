@@ -38,7 +38,7 @@ jobs:
             echo "Tag is $TAG, pyproject.toml says $version, __init__.py says $module. They must match."
             exit 1
           fi
-      - run: pip install build twine && python -m build
+      - run: pip install --require-hashes -r requirements/release.txt && python -m build
       - name: Check the packages and smoke-test the wheel in a clean environment
         run: |
           twine check dist/*

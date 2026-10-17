@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
 First release with signed artifacts. Functionally identical to 0.2.0.
 
 ### Fixed
+- CI, the release workflow and the container image now install from hash-pinned lockfiles (`requirements/`), so a changed or tampered package is refused; Dependabot keeps them current.
 - The release workflow failed to sign and attest the container image because the registry name has to be lowercase. 0.2.0 was published to PyPI and GHCR but has no signatures, checksums, SBOM or GitHub release; use 0.2.1 or later if you want to verify what you install ([verifying releases](docs/verifying-releases.md)).
 
 ## [0.2.0] - 2026-10-17

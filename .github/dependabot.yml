@@ -6,6 +6,16 @@ updates:
     schedule:
       interval: "weekly"
 
+  # The hash-pinned lockfiles used by CI, the release workflow and the Docker image.
+  - package-ecosystem: "pip"
+    directory: "/requirements"
+    assignees: ["HoneyBearTech"]
+    schedule:
+      interval: "weekly"
+    groups:
+      lockfile-updates:
+        patterns: ["*"]
+
   - package-ecosystem: "docker"
     directory: "/"
     assignees: ["HoneyBearTech"]
