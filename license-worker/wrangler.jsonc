@@ -7,7 +7,7 @@
   "routes": [{ "pattern": "license.homelabscribe.com", "custom_domain": true }],
   // Remembers which orders were already emailed, so a retried webhook never sends a second key.
   // Create it with `npx wrangler@4 kv namespace create ORDERS`, then paste the id below.
-  "kv_namespaces": [{ "binding": "ORDERS", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "kv_namespaces": [{ "binding": "ORDERS", "id": "f492020284a7413d8d579499dcc45f40" }],
   "vars": {
     "PRODUCT_ID": "1448856",
     "FROM_ADDRESS": "HomelabScribe <licenses@homelabscribe.com>",
