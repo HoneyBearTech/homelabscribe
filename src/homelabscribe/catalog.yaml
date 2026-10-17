@@ -33,7 +33,7 @@
 - {match: [prometheus, argus-prometheus], name: Prometheus, category: Monitoring, description: "Collects metrics from servers and apps."}
 - {match: [node-exporter], name: Node Exporter, category: Monitoring, description: "Reports server CPU, memory and disk metrics to Prometheus."}
 - {match: [cadvisor], name: cAdvisor, category: Monitoring, description: "Reports container resource usage."}
-- {match: [loki], name: Loki, category: Monitoring, description: "Stores logs for searching in Grafana."}
+- {match: [loki, argus-loki], name: Loki, category: Monitoring, description: "Stores logs for searching in Grafana."}
 - {match: [influxdb], name: InfluxDB, category: Monitoring, description: "Time-series database for metrics."}
 - {match: [uptime-kuma], name: Uptime Kuma, category: Monitoring, description: "Checks that apps are up and sends alerts when they are not."}
 - {match: [home-assistant, homeassistant], name: Home Assistant, category: Home, description: "Runs the smart-home devices and automations."}
@@ -63,3 +63,18 @@
 - {match: [unpoller], name: UniFi Poller, category: Monitoring, description: "Exposes UniFi network and internet stats to Prometheus."}
 - {match: [pihole-exporter], name: Pi-hole Exporter, category: Monitoring, description: "Exposes Pi-hole stats to Prometheus."}
 - {match: [peanut], name: PeaNUT, category: Monitoring, description: "Web dashboard for the UPS that also exposes its metrics to Prometheus."}
+- {match: [kometa], name: Kometa, category: Media, description: "Builds Plex collections, overlays and metadata automatically."}
+- {match: [imagemaid], name: ImageMaid, category: Media, description: "Cleans unused cached images out of Plex's metadata folder."}
+- {match: [aura], name: Aura, category: Media, description: "Browses MediUX poster sets and applies them to the media server's library."}
+- {match: [titlecardmaker-webui, titlecardmaker], name: TitleCardMaker, category: Media, description: "Creates matching title cards for TV episodes."}
+- {match: [tdarr], name: Tdarr, category: Media, description: "Re-encodes the media library to save space and keep formats consistent."}
+- {match: [nvidia_gpu_exporter], name: GPU Exporter, category: Monitoring, description: "Exposes NVIDIA GPU stats to Prometheus."}
+- {match: [prometheus-plex-exporter], name: Plex Exporter, category: Monitoring, description: "Exposes Plex stats to Prometheus."}
+- {match: [diun], name: Diun, category: Infrastructure, description: "Checks container registries and notifies you when a newer image is available."}
+- {match: [caddy], name: Caddy, category: Network, description: "Web server and reverse proxy that handles HTTPS automatically."}
+- {match: [nginx], name: Nginx, category: Network, description: "Web server that serves pages or forwards traffic to other apps."}
+- {match: [inventree], name: InvenTree, category: Home, description: "Tracks parts, stock and suppliers for electronics and workshop projects."}
+- {match: [homebox], name: Homebox, category: Home, description: "Home inventory: what you own, where it is and when the warranty ends."}
+- {match: [spoolman], name: Spoolman, category: Home, description: "Tracks 3D-printer filament spools and how much is left on each."}
+- {match: [minecraft-bedrock-server, minecraft-server], name: Minecraft Server, category: Games, description: "A Minecraft game server."}
+- {match: [homelabscribe], name: HomelabScribe, category: Infrastructure, description: "Writes the documentation you're reading."}

@@ -208,3 +208,37 @@ def test_doctor_reports_the_npm_login(monkeypatch, tmp_path):
         "Nginx Proxy Manager 'edge': FAILED (RuntimeError)"
         in CliRunner().invoke(app, ["doctor", "-c", str(cfg)]).output
     )
+
+
+def test_parse_aliases_drops_the_container_id_and_own_name():
+    from homelabscribe.collectors.docker import parse_aliases
+
+    nets = {
+        "app_default": {"Aliases": ["argus-grafana", "grafana", "argus-grafana-1", "0a1b2c3d4e5f"]},
+        "proxy_default": {"Aliases": ["argus-grafana", None, ""]},
+    }
+    assert parse_aliases(nets, "argus-grafana-1") == ["argus-grafana", "grafana"]
+    assert parse_aliases(None, "x") == [] and parse_aliases({"n": None}, "x") == []
+
+
+def test_route_matches_a_network_alias_only_when_it_is_unique():
+    hosts = [Host(name="a", kind="docker"), Host(name="b", kind="docker")]
+    ports = [Port(container=3000, host=3000)]
+    one = Service(name="argus-grafana-1", host="a", kind="container", ports=ports, aliases=["argus-grafana"])
+    twin_a = Service(name="web-1", host="a", kind="container", ports=ports, aliases=["web"])
+    twin_b = Service(name="web-1", host="b", kind="container", ports=ports, aliases=["web"])
+    routes = [
+        Route(
+            proxy="npm",
+            domains=["g.example.com"],
+            forward_host="argus-grafana",
+            forward_port=3000,
+            https=True,
+        ),
+        Route(proxy="npm", domains=["w.example.com"], forward_host="web", forward_port=3000),
+        Route(proxy="npm", domains=["x.example.com"], forward_host="argus-grafana", forward_port=9999),
+    ]
+    link_routes(routes, hosts, [one, twin_a, twin_b])
+    assert routes[0].service == "a/argus-grafana-1" and one.url == "https://g.example.com"
+    assert routes[1].service is None  # two services answer to "web": not guessed
+    assert routes[2].service is None  # right alias, wrong port
