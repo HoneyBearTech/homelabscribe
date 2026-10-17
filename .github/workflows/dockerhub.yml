@@ -1,0 +1,54 @@
+name: Mirror to Docker Hub
+
+# After each successful Release run, copy that release's image from GHCR to Docker Hub. It is the same
+# image (identical digest), so the release's signature and build attestation apply to the mirror too.
+# This is a separate workflow so a Docker Hub problem can never fail or block a release.
+# Run it by hand to mirror an older release: Actions > Mirror to Docker Hub > Run workflow.
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to mirror, as tagged on GHCR (for example 0.2.1)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Copy the release image to Docker Hub
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Copy the image (same digest) to Docker Hub
+        env:
+          EVENT: ${{ github.event_name }}
+          VERSION_INPUT: ${{ inputs.version }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+          OWNER: ${{ github.repository_owner }}
+          HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          version="${VERSION_INPUT:-${RUN_TAG#v}}"
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Not a release version: $version"; exit 1 ;;
+          esac
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          hub=$(echo "$HUB_USER" | tr '[:upper:]' '[:lower:]')
+          src="ghcr.io/$owner/homelabscribe"
+          digest=$(docker buildx imagetools inspect "$src:$version" --format '{{.Manifest.Digest}}')
+          tags="$version ${version%.*}"
+          if [ "$EVENT" != "workflow_dispatch" ]; then tags="$tags latest"; fi
+          for tag in $tags; do
+            docker buildx imagetools create --tag "docker.io/$hub/homelabscribe:$tag" "$src@$digest"
+          done
+          echo "Mirrored $src@$digest to Docker Hub with tags: $tags"
