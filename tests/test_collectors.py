@@ -121,3 +121,24 @@ def test_proxmox_collector_with_fake_api():
     hosts, services = ProxmoxCollector(cfg, api=api).collect()
     assert hosts[0].name == "pve1" and hosts[0].version == "8.2.4"
     assert services[0].name == "ha" and services[0].kind == "vm"
+
+
+def test_proxmox_nodes_get_their_own_address():
+    empty = _Endpoint(None, {"qemu": _Endpoint([], {}), "lxc": _Endpoint([], {})})
+    api = _Endpoint(
+        None,
+        {
+            "version": _Endpoint({"version": "9"}),
+            "nodes": _Endpoint(
+                [{"node": "a", "status": "online"}, {"node": "b", "status": "online"}],
+                {"a": empty, "b": empty},
+            ),
+            "cluster": _Endpoint(
+                None, {"status": _Endpoint([{"type": "node", "name": "a", "ip": "10.0.0.1"}])}
+            ),
+        },
+    )
+    cfg = ProxmoxConfig(host="10.0.0.1", user="u@pve", token_name="t", token_value="v")
+    hosts, _ = ProxmoxCollector(cfg, api=api).collect()
+    # b is unknown: no address rather than a wrong one (the API host belongs to a)
+    assert [h.address for h in hosts] == ["10.0.0.1", None]

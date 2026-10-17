@@ -65,3 +65,11 @@ def test_strict_exits_nonzero_when_a_source_fails(tmp_path, monkeypatch, command
     assert runner.invoke(app, [command, "-c", str(cfg)]).exit_code == 0  # default: errors are only reported
     strict = runner.invoke(app, [command, "-c", str(cfg), "--strict"])
     assert strict.exit_code == 1 and "error:" in strict.output
+
+
+def test_unreadable_source_reason_is_short():
+    from homelabscribe.pipeline import _reason
+
+    long = "HTTPConnectionPool(host='x', port=2375): Max retries (Errno 61] Connection refused"
+    assert _reason(Exception(long)) == "connection refused"
+    assert _reason(Exception("boom\nsecond line")) == "boom"

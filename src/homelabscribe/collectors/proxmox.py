@@ -53,17 +53,28 @@ class ProxmoxCollector:
             )
         return self._api
 
+    def _node_addresses(self) -> dict[str, str]:
+        """Each node's own IP from the cluster status; empty if the API won't say."""
+        try:
+            return {e["name"]: e["ip"] for e in self.api.cluster.status.get() if e.get("ip")}
+        except Exception:
+            return {}
+
     def collect(self) -> tuple[list[Host], list[Service]]:
         hosts: list[Host] = []
         services: list[Service] = []
         version = (self.api.version.get() or {}).get("version")
-        for n in self.api.nodes.get():
+        nodes = self.api.nodes.get()
+        addresses = self._node_addresses()
+        for n in nodes:
             node = n["node"]
+            # Without cluster info, the configured host is only a safe guess for a single-node setup.
+            address = addresses.get(node) or (self.cfg.host if len(nodes) == 1 else None)
             hosts.append(
                 Host(
                     name=node,
                     kind="proxmox-node",
-                    address=self.cfg.host,
+                    address=address,
                     os="Proxmox VE",
                     cpus=n.get("maxcpu"),
                     memory_gb=_gb(n.get("maxmem")),
