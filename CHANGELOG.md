@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format follows
 - Signed releases: cosign keyless signatures, checksums, SBOM and build provenance.
 - `link_host` per Docker host: the hostname or IP that service links use (default: the host's `name`).
 - `npm` in the config: read Nginx Proxy Manager's proxy hosts to give services their real web address and write a `routes.md` page of every domain and where it goes.
+- Website source in `site/` (static page for homelabscribe.com, with a pre-launch switch).
 - `--strict` for `scan` and `run`: exit with status 1 when a host, cluster or proxy could not be read, so a scheduler can notice.
 - `doctor` tests the Nginx Proxy Manager login. Proxy routes also match hand-described services by the address in their URL (when only one service has that address).
 - Catalog entries for Seerr, Whisparr, Dozzle, Autoheal, Argus Agent, trash-watch and the Prometheus exporters and tools in the Argus stack (Blackbox, Varken, Exportarr, SNMP, Tdarr, Proxmox, qBittorrent, GitLab CI, UniFi Poller, Pi-hole, PeaNUT).
