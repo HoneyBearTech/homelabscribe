@@ -11,6 +11,8 @@ homelabscribe --help
 
 ## Docker Compose
 
+The image is published to both GitHub Container Registry (`ghcr.io/honeybeartech/homelabscribe`) and Docker Hub (`honeybeartech/homelabscribe`); they are the same image. The example compose file uses GHCR; swap the image name if you prefer Docker Hub.
+
 HomelabScribe reaches Docker through a [socket proxy](https://github.com/Tecnativa/docker-socket-proxy) that only allows read calls.
 
 ```bash
