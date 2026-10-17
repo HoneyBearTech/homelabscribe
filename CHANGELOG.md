@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
 - Property-based (Hypothesis) fuzz tests cover the Docker, Proxmox, redaction, notes and license parsers.
 
 ### Changed
+- The container image now runs on Python 3.14, and CI tests Python 3.11 to 3.14.
 - Image defaults such as `PATH`, `HOME`, `S6_*` and `XDG_*` are left out of the "Configuration variables" list.
 - The default `output_dir` is now `homelabscribe-docs` (was `docs`), so generated output no longer collides with the project's own `docs/` folder. Set `output_dir` explicitly if you relied on the old default.
 
