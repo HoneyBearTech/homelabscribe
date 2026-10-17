@@ -48,11 +48,21 @@ def _interval(text: str) -> int:
     return int(m.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
 
 
+StrictOpt = typer.Option(
+    False,
+    "--strict",
+    help="Exit with status 1 if any host or proxy could not be read (docs are still written).",
+)
+
+
 @app.command()
-def scan(config: Path = ConfigOpt):
+def scan(config: Path = ConfigOpt, strict: bool = StrictOpt):
     """Collect a new snapshot of your lab (read-only)."""
     cfg, feats, _ = _load(config)
-    _report_scan(pipeline.scan(cfg, feats))
+    result = pipeline.scan(cfg, feats)
+    _report_scan(result)
+    if strict and result.errors:
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -67,6 +77,7 @@ def render(config: Path = ConfigOpt):
 def run(
     config: Path = ConfigOpt,
     every: str = typer.Option(None, "--every", help="Repeat on a schedule, e.g. 6h or 1d (Pro)."),
+    strict: bool = StrictOpt,
 ):
     """Scan, then render. The usual command."""
     cfg, feats, status = _load(config)
@@ -80,6 +91,8 @@ def run(
         written = pipeline.render(cfg, feats, result.snapshot)
         typer.echo(f"Updated {len(written)} file(s) in {cfg.output_dir}.")
         if not every:
+            if strict and result.errors:
+                raise typer.Exit(1)
             break
         time.sleep(_interval(every))
 
