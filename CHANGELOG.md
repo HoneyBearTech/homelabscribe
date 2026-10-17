@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
+First public release.
+
 ### Added
 - Project documentation in `docs/`, security policy, governance, contribution and support guides.
 - CI security workflows: CodeQL, OpenSSF Scorecard, dependency review, DCO check, secret scanning.
@@ -37,6 +41,6 @@ All notable changes to this project are documented here. The format follows
 - Image defaults such as `PATH`, `HOME`, `S6_*` and `XDG_*` are left out of the "Configuration variables" list.
 - The default `output_dir` is now `homelabscribe-docs` (was `docs`), so generated output no longer collides with the project's own `docs/` folder. Set `output_dir` explicitly if you relied on the old default.
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-17 (internal, never published)
 
 Initial scaffold: Docker collector, Proxmox collector (Pro), app catalog, snapshots and diff, Markdown renderer with preserved notes, offline license keys, CLI.
