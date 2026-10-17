@@ -28,6 +28,25 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check that the token can push (prints the status and granted permissions, never the token)
+        env:
+          HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          hub=$(echo "$HUB_USER" | tr '[:upper:]' '[:lower:]')
+          code=$(curl -s -o "$RUNNER_TEMP/hub.json" -w '%{http_code}' -u "$HUB_USER:$HUB_TOKEN" \
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$hub/homelabscribe:pull,push")
+          echo "Docker Hub token endpoint answered: HTTP $code"
+          echo "Username length: ${#HUB_USER}, contains an at-sign: $([[ "$HUB_USER" == *@* ]] && echo yes || echo no), contains whitespace: $([[ "$HUB_USER" =~ [[:space:]] ]] && echo yes || echo no)"
+          echo "Token length: ${#HUB_TOKEN}, starts with dckr_pat_: $([[ "$HUB_TOKEN" == dckr_pat_* ]] && echo yes || echo no), contains whitespace: $([[ "$HUB_TOKEN" =~ [[:space:]] ]] && echo yes || echo no)"
+          if [ "$code" = "200" ]; then
+            python3 -c "
+          import json,base64
+          t=json.load(open('$RUNNER_TEMP/hub.json'))['token'].split('.')[1]
+          t+='='*(-len(t)%4)
+          print('Granted access:', json.loads(base64.urlsafe_b64decode(t)).get('access'))"
+          fi
       - name: Copy the image (same digest) to Docker Hub
         env:
           EVENT: ${{ github.event_name }}
