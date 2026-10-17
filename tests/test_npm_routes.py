@@ -85,9 +85,9 @@ def test_collector_fails_cleanly_on_a_bad_login():
 
 
 def _lab():
-    hosts = [Host(name="atlas", kind="docker", link_host="192.168.1.68")]
-    sonarr = Service(name="sonarr", host="atlas", kind="container", ports=[Port(container=8989, host=8988)])
-    radarr = Service(name="radarr", host="atlas", kind="container", ports=[Port(container=7878, host=7878)])
+    hosts = [Host(name="nova", kind="docker", link_host="192.168.1.68")]
+    sonarr = Service(name="sonarr", host="nova", kind="container", ports=[Port(container=8989, host=8988)])
+    radarr = Service(name="radarr", host="nova", kind="container", ports=[Port(container=7878, host=7878)])
     return hosts, [sonarr, radarr]
 
 
@@ -99,14 +99,14 @@ def test_route_matches_by_machine_and_published_port():
         )
     ]
     link_routes(routes, hosts, svcs)
-    assert routes[0].service == "atlas/sonarr" and svcs[0].url == "https://s.example.com"
+    assert routes[0].service == "nova/sonarr" and svcs[0].url == "https://s.example.com"
 
 
 def test_route_matches_by_container_name_and_container_port():
     hosts, svcs = _lab()
     routes = [Route(proxy="npm", domains=["r.example.com"], forward_host="radarr", forward_port=7878)]
     link_routes(routes, hosts, svcs)
-    assert routes[0].service == "atlas/radarr" and svcs[1].url == "http://r.example.com"
+    assert routes[0].service == "nova/radarr" and svcs[1].url == "http://r.example.com"
 
 
 def test_unmatched_wrong_port_disabled_and_explicit_url():
@@ -125,7 +125,7 @@ def test_unmatched_wrong_port_disabled_and_explicit_url():
     ]
     link_routes(routes, hosts, svcs)
     assert routes[0].service is None
-    assert routes[1].service == "atlas/sonarr" and svcs[0].url is None  # matched, but disabled: no URL
+    assert routes[1].service == "nova/sonarr" and svcs[0].url is None  # matched, but disabled: no URL
     assert svcs[1].url == "https://label-wins.example.com"  # an explicit URL is never overwritten
 
 
@@ -161,7 +161,7 @@ def test_routes_page_and_index_link(tmp_path):
     assert "[sonarr](services/sonarr.md)" in page
     assert "_not matched to a scanned service_" in page and "`http://10.9.9.9:80`" in page
     assert "[Reverse proxy routes](routes.md)" in (tmp_path / "index.md").read_text()
-    assert json.loads(snap.model_dump_json())["routes"][0]["service"] == "atlas/sonarr"
+    assert json.loads(snap.model_dump_json())["routes"][0]["service"] == "nova/sonarr"
 
 
 def test_route_matches_a_hand_described_service_by_the_address_of_its_url():
