@@ -35,10 +35,11 @@ jobs:
         run: |
           set -uo pipefail
           hub=$(echo "$HUB_USER" | tr '[:upper:]' '[:lower:]')
-          for repo in homelabscribe argus-agent; do
+          for query in "" "&scope=repository:$hub/argus-agent:pull" "&scope=repository:$hub/argus-agent:pull,push" "&scope=repository:$hub/homelabscribe:pull,push"; do
+            repo="${query:-no scope (plain login)}"
             code=$(curl -s -o "$RUNNER_TEMP/hub.json" -w '%{http_code}' -u "$HUB_USER:$HUB_TOKEN" \
-              "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$hub/$repo:pull,push")
-            echo "Token request for push access to <account>/$repo: HTTP $code"
+              "https://auth.docker.io/token?service=registry.docker.io$query")
+            echo "Token request [${repo//$hub/<account>}]: HTTP $code"
             if [ "$code" = "200" ]; then
               python3 -c "
           import json,base64
