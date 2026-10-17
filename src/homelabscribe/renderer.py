@@ -123,6 +123,8 @@ class Renderer:
                 if (d := by_name.get((s.host, s.compose_project, name))) is not None
             ]
 
+        by_id = {s.id: s for s in snap.services}
+
         def users(s: Service) -> list[Service]:
             return [u for u in services if s in deps(u)]
 
@@ -136,6 +138,7 @@ class Renderer:
             "address": address,
             "deps": deps,
             "users": users,
+            "service_by_id": by_id.get,
             "host_slug": lambda h: host_slugs.get(h.name, slug(h.name)),
             "host_slug_by_name": lambda name: host_slugs.get(name, slug(name)),
         }
@@ -255,11 +258,13 @@ class Renderer:
                 return ids.setdefault(key, f"n{len(ids)}")
 
             edges = [(s, d) for s in services for d in ctx["deps"](s)]
+            guest_edges = [(s, s.runs_host) for s in services if s.runs_host]
             self._write(
                 "topology.md",
                 self.env.get_template("topology.md.j2").render(
                     hosts=hosts,
                     edges=edges,
+                    guest_edges=guest_edges,
                     node_id=node_id,
                     on_host=lambda h: [s for s in services if s.host == h.name],
                 ),

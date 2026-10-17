@@ -10,7 +10,7 @@ from homelabscribe.collectors.npm import NpmCollector
 from homelabscribe.collectors.proxmox import ProxmoxCollector
 from homelabscribe.config import Config
 from homelabscribe.diff import Diff, compare
-from homelabscribe.enrich import enrich, link_routes, load_catalog
+from homelabscribe.enrich import enrich, link_guests, link_routes, load_catalog
 from homelabscribe.models import Host, Service, Snapshot
 from homelabscribe.renderer import Renderer
 
@@ -91,6 +91,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         snap.services += manual_services
 
     enrich(snap.services, load_catalog(cfg.catalog_file))
+    link_guests(snap.hosts, snap.services)
 
     for proxy in cfg.npm:
         try:

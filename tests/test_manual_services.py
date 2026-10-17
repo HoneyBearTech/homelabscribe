@@ -93,3 +93,17 @@ def test_break_glass_names_every_dns_server(tmp_path):
     guide = (tmp_path / "docs" / "break-glass.md").read_text()
     assert "**Pi-hole** (on the machine **pi**) and **Pi-hole** (on the machine **pi-two**)" in guide
     assert "those machines, one at a time (see below)," in guide
+
+
+def test_vm_named_like_a_docker_host_is_linked_to_it():
+    from homelabscribe.enrich import link_guests
+    from homelabscribe.models import Host, Service
+
+    docker = Host(name="Atlas", kind="docker")
+    node = Host(name="hyve", kind="proxmox-node")
+    vm = Service(name="atlas", host="hyve", kind="vm")
+    other = Service(name="loadmaster", host="hyve", kind="vm")
+    link_guests([docker, node], [vm, other])
+    assert vm.runs_host == "Atlas" and docker.guest_of == "hyve/atlas" and other.runs_host is None
+    link_guests([docker, node], [other])  # the VM went away: the link must too
+    assert docker.guest_of is None

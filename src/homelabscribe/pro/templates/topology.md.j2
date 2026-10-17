@@ -15,6 +15,9 @@ flowchart LR
 {% endfor %}
   end
 {% endfor %}
+{% for s, host_name in guest_edges %}
+  {{ node_id(s.id) }} -. "is the Docker host" .-> {{ node_id(host_name) }}
+{% endfor %}
 {% for a, b in edges %}
   {{ node_id(a.id) }} --> {{ node_id(b.id) }}
 {% endfor %}
