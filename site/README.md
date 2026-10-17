@@ -23,7 +23,7 @@ The page starts in pre-launch mode: `<body class="prelaunch">` hides the GitHub,
 
 ## Keeping it in sync
 
-- The images in `site/assets/` are copies of the ones in `docs/assets/` (logo, social preview and the three demo screenshots). Update both when they change.
+- The images in `site/assets/` are copies of the ones in `docs/assets/` (banner, logo, social preview and the three demo screenshots). Update both when they change. The README uses the website copies (`https://homelabscribe.com/assets/...`) so its images also show on PyPI.
 - The Free vs Pro table mirrors the one in the README.
 - Pricing is intentionally not on the page yet.
 - `.assetsignore` keeps this README out of the published site.

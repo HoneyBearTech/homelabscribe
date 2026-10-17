@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 - `link_host` per Docker host: the hostname or IP that service links use (default: the host's `name`).
 - `npm` in the config: read Nginx Proxy Manager's proxy hosts to give services their real web address and write a `routes.md` page of every domain and where it goes.
 - Website source in `site/` (static page for homelabscribe.com, with a pre-launch switch).
+- Release workflow: a manual dry run that builds and checks everything and publishes nothing; the real run now checks that the tag matches the package version and smoke-tests the wheel. CI smoke-tests the container image.
 - `--strict` for `scan` and `run`: exit with status 1 when a host, cluster or proxy could not be read, so a scheduler can notice.
 - `doctor` tests the Nginx Proxy Manager login. Proxy routes also match hand-described services by the address in their URL (when only one service has that address).
 - Catalog entries for Seerr, Whisparr, Dozzle, Autoheal, Argus Agent, trash-watch and the Prometheus exporters and tools in the Argus stack (Blackbox, Varken, Exportarr, SNMP, Tdarr, Proxmox, qBittorrent, GitLab CI, UniFi Poller, Pi-hole, PeaNUT).
@@ -23,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 - A host, cluster or proxy that is down for one scan keeps its last known services and routes instead of being recorded as removed (which deleted or archived its pages).
 - The break-glass guide names every DNS server (for example two Pi-holes), not just the first.
 - The break-glass guide no longer mistakes a Pi-hole exporter for the DNS server; only Pi-hole and AdGuard Home images (or a manual entry) count.
+
+- The source distribution is now lean (about 68 KB, was 3.4 MB): it no longer includes the Hypothesis cache, `.claude/`, `.github/`, `site/` or images.
+- The README shown on PyPI no longer has dead relative links or images: links are rewritten to the repository and the images load from homelabscribe.com.
 
 ### Security
 - The container base image is pinned by digest.

@@ -1,12 +1,12 @@
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling>=1.24", "hatch-fancy-pypi-readme>=24.1"]
 build-backend = "hatchling.build"
 
 [project]
 name = "homelabscribe"
 version = "0.1.0"
 description = "Documentation for your homelab that writes itself — and keeps your notes."
-readme = "README.md"
+dynamic = ["readme"]
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE", "src/homelabscribe/pro/LICENSE-COMMERCIAL.md"]
@@ -40,6 +40,35 @@ Homepage = "https://homelabscribe.com"
 Source = "https://github.com/HoneyBearTech/homelabscribe"
 Issues = "https://github.com/HoneyBearTech/homelabscribe/issues"
 Changelog = "https://github.com/HoneyBearTech/homelabscribe/blob/main/CHANGELOG.md"
+
+# PyPI shows the README without the repository around it, so relative links would be dead.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#|mailto:)([^)]+)\)'
+replacement = '](https://github.com/HoneyBearTech/homelabscribe/blob/main/\1)'
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/docs",
+  "/tools",
+  "/LICENSE",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/CONTRIBUTING.md",
+  "/SECURITY.md",
+  "/TRADEMARKS.md",
+  "/Dockerfile",
+  "/docker-compose.example.yml",
+  "/homelabscribe.example.yaml",
+]
+exclude = ["/docs/assets"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/homelabscribe"]
