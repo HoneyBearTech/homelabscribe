@@ -104,6 +104,14 @@ def doctor(config: Path = ConfigOpt):
             )
         except Exception as e:
             typer.secho(f"Docker '{h.name}': FAILED ({type(e).__name__})", fg="red")
+    for n in cfg.npm:
+        try:
+            from homelabscribe.collectors.npm import NpmCollector
+
+            count = len(NpmCollector(n).collect())
+            typer.secho(f"Nginx Proxy Manager '{n.name}': OK ({count} proxy hosts)", fg="green")
+        except Exception as e:
+            typer.secho(f"Nginx Proxy Manager '{n.name}': FAILED ({type(e).__name__})", fg="red")
     for p in cfg.proxmox:
         if "proxmox" not in feats:
             typer.secho(f"Proxmox '{p.name}': configured, needs Pro", fg="yellow")

@@ -108,25 +108,42 @@ def _host_names(host: Host) -> set[str]:
     return names
 
 
+def _route_target(
+    route: Route,
+    names: dict[str, set[str]],
+    services: list[Service],
+    manual_by_address: dict[str, list[Service]],
+) -> Service | None:
+    target = route.forward_host.lower()
+    by_hand = manual_by_address.get(target, [])
+    if len(by_hand) == 1:
+        return by_hand[0]
+    for s in services:
+        published = {p.host for p in s.ports if p.host}
+        on_machine = target in names.get(s.host, {s.host.lower()}) and route.forward_port in published
+        by_container = target == s.name.lower() and route.forward_port in {p.container for p in s.ports}
+        if on_machine or by_container:
+            return s
+    return None
+
+
 def link_routes(routes: list[Route], hosts: list[Host], services: list[Service]) -> None:
     """Match each reverse-proxy route to the service it forwards to, and give that service its URL.
 
     A route forwards to a host (name or IP) and a port. That is a service when the host is the
     service's machine and the port is one it publishes, or when the host is the container's own
-    name (Docker networks resolve it) and the port is the container's port. A URL set by a label
-    or Traefik rule always wins.
+    name (Docker networks resolve it) and the port is the container's port. Hand-described services
+    have no ports, so they match by the address in their own URL, but only when that address belongs
+    to exactly one of them (several things can share a machine). A URL set by a label, a Traefik
+    rule or the config always wins.
     """
     names = {h.name: _host_names(h) for h in hosts}
+    manual_by_address: dict[str, list[Service]] = {}
+    for s in services:
+        if s.kind == "manual" and s.url and (addr := urlparse(s.url).hostname):
+            manual_by_address.setdefault(addr.lower(), []).append(s)
     for route in routes:
-        target = route.forward_host.lower()
-        match = None
-        for s in services:
-            published = {p.host for p in s.ports if p.host}
-            on_machine = target in names.get(s.host, {s.host.lower()}) and route.forward_port in published
-            by_container = target == s.name.lower() and route.forward_port in {p.container for p in s.ports}
-            if on_machine or by_container:
-                match = s
-                break
+        match = _route_target(route, names, services, manual_by_address)
         if match is None:
             continue
         route.service = match.id
