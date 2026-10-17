@@ -2,6 +2,10 @@
 
 A static site: plain HTML and CSS, no build step, no JavaScript, no third-party requests. It is deployed from this folder to Cloudflare Pages.
 
+## Deploy with Workers Builds (what is set up)
+
+`wrangler.jsonc` at the repo root points Wrangler at this folder (`assets.directory`), so the Git integration's default deploy command, `npx wrangler deploy`, publishes the site. The Worker `name` in that file must match the project name in the Cloudflare dashboard. The build also auto-runs `pip install .` because the repo is a Python project; it is harmless, and `SKIP_DEPENDENCY_INSTALL=1` as a build variable skips it. Custom domains are under the Worker's Settings → Domains & Routes.
+
 ## Deploy (Cloudflare Pages, Git integration)
 
 1. Cloudflare dashboard → Workers & Pages → Create → Pages → Connect to Git → pick this repository.
