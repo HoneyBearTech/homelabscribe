@@ -1,0 +1,7 @@
+{
+  // Cloudflare Workers static-assets config: `npx wrangler deploy` publishes the website in site/.
+  // "name" must match the project name in the Cloudflare dashboard.
+  "name": "homelabscribe",
+  "compatibility_date": "2026-10-17",
+  "assets": { "directory": "./site" }
+}

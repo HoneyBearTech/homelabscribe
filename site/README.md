@@ -1,0 +1,27 @@
+# Website source (homelabscribe.com)
+
+A static site: plain HTML and CSS, no build step, no JavaScript, no third-party requests. It is deployed from this folder to Cloudflare Pages.
+
+## Deploy with Workers Builds (what is set up)
+
+`wrangler.jsonc` at the repo root points Wrangler at this folder (`assets.directory`), so the Git integration's default deploy command, `npx wrangler deploy`, publishes the site. The Worker `name` in that file must match the project name in the Cloudflare dashboard. The build also auto-runs `pip install .` because the repo is a Python project; it is harmless, and `SKIP_DEPENDENCY_INSTALL=1` as a build variable skips it. Custom domains are under the Worker's Settings → Domains & Routes.
+
+## Deploy (Cloudflare Pages, Git integration)
+
+1. Cloudflare dashboard → Workers & Pages → Create → Pages → Connect to Git → pick this repository.
+2. Production branch `main`, **no build command**, build output directory `site`.
+3. After the first deploy, Custom domains → add `homelabscribe.com` and `www.homelabscribe.com`.
+4. If a redirect rule or placeholder DNS records for the domain exist from before, delete them first so Pages can attach its own records.
+
+`_headers` sets a strict Content-Security-Policy and other security headers; Pages applies it automatically.
+
+## Launch switch
+
+The page starts in pre-launch mode: `<body class="prelaunch">` hides the GitHub, docs and install links and shows "Public release coming soon". When the repository and the PyPI package are public, remove `class="prelaunch"` from `<body>` in `index.html`.
+
+## Keeping it in sync
+
+- The images in `site/assets/` are copies of the ones in `docs/assets/` (logo, social preview and the three demo screenshots). Update both when they change.
+- The Free vs Pro table mirrors the one in the README.
+- Pricing is intentionally not on the page yet.
+- `.assetsignore` keeps this README out of the published site.

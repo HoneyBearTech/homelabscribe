@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HomelabScribe™: documentation for your homelab that writes itself</title>
+  <meta name="description" content="HomelabScribe™ scans your Docker hosts and Proxmox cluster and writes readable Markdown docs that refresh on every run and keep the notes you write. Read-only, private, no telemetry.">
+  <meta name="theme-color" content="#0B1626">
+  <link rel="canonical" href="https://homelabscribe.com/">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="HomelabScribe™: documentation for your homelab that writes itself">
+  <meta property="og:description" content="Scans your Docker hosts and Proxmox cluster and writes readable Markdown docs that keep your notes. Read-only, private, no telemetry.">
+  <meta property="og:url" content="https://homelabscribe.com/">
+  <meta property="og:image" content="https://homelabscribe.com/assets/social-preview.png">
+  <meta property="og:image:alt" content="HomelabScribe: documentation for your homelab that writes itself, and keeps your notes.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="style.css">
+</head>
+<!-- Launch switch: remove class="prelaunch" from <body> when the repo and the PyPI package are public. -->
+<body class="prelaunch">
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="HomelabScribe home">
+      <img src="assets/logo.svg" alt="" width="40" height="40">
+      <span>Homelab<b>Scribe</b><sup>™</sup></span>
+    </a>
+    <nav aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#pricing">Free vs Pro</a>
+      <a class="live-only" href="https://github.com/HoneyBearTech/homelabscribe#readme">Docs</a>
+      <a class="live-only" href="https://github.com/HoneyBearTech/homelabscribe">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <h1>Documentation for your homelab that <span class="accent">writes itself</span>, and keeps your notes.</h1>
+      <p class="lead">HomelabScribe™ scans your Docker hosts (and Proxmox, with Pro) and writes readable Markdown: one page per service, one per host, and an overview. Run it again tomorrow and the docs update themselves. Anything you wrote in a page's Notes section stays exactly as you left it.</p>
+      <p class="cta">
+        <span class="pill prelaunch-only">Public release coming soon</span>
+        <a class="button live-only" href="https://github.com/HoneyBearTech/homelabscribe#try-it-in-10-seconds">Try the demo</a>
+        <a class="button ghost live-only" href="https://github.com/HoneyBearTech/homelabscribe">View on GitHub</a>
+      </p>
+      <p class="facts">Open source (AGPL-3.0) · Python 3.11+ · Docker image · Obsidian-friendly</p>
+    </section>
+
+    <section id="features" aria-labelledby="features-h">
+      <h2 id="features-h">Built to be safe to point at your whole lab</h2>
+      <ul class="cards">
+        <li><h3>Read-only</h3><p>It never changes a container, VM or host. Docker access goes through a read-only socket proxy, and Proxmox through an audit-only token.</p></li>
+        <li><h3>Private by design</h3><p>Runs on your network. No telemetry, no update checks, no license calls. Pro keys are verified offline.</p></li>
+        <li><h3>No secrets on disk</h3><p>Environment variable names are recorded, never their values. Labels that look like credentials are dropped.</p></li>
+        <li><h3>Your notes survive</h3><p>Every page ends with a Notes block that is copied forward untouched. Pages for removed services that hold notes are archived, not deleted.</p></li>
+        <li><h3>Plain-English pages</h3><p>It recognizes 60+ common self-hosted apps and describes them in plain language. Add your own with labels or a catalog file.</p></li>
+        <li><h3>Real web addresses</h3><p>It can read Nginx Proxy Manager so each service shows the address you actually use, and lists every route on one page.</p></li>
+        <li><h3>Covers what it can't scan</h3><p>Describe a Pi-hole on a Raspberry Pi, a NAS or a router by hand, and it appears alongside everything else.</p></li>
+        <li><h3>A guide for family <span class="tag">Pro</span></h3><p>A break-glass page in plain language: what to do if the internet is down, which machines to restart, and who to call.</p></li>
+      </ul>
+    </section>
+
+    <section id="how" aria-labelledby="how-h">
+      <h2 id="how-h">How it works</h2>
+      <ol class="steps">
+        <li><b>Point it at your hosts.</b> A short YAML file lists your Docker hosts, and optionally Proxmox and your reverse proxy.</li>
+        <li><b>Run it</b> from cron, a container, or with Pro's built-in schedule. Each run takes a snapshot, compares it with the last one and rewrites only what changed.</li>
+        <li><b>Read it anywhere.</b> The output is Markdown, so it drops straight into an Obsidian vault, a Git repo or any viewer.</li>
+      </ol>
+      <pre class="code live-only" aria-label="Install and run"><code>pipx install homelabscribe
+homelabscribe demo          # a made-up lab, no Docker needed
+homelabscribe run -c homelabscribe.yaml</code></pre>
+      <p class="prelaunch-only note">Install instructions appear here at launch.</p>
+    </section>
+
+    <section id="screenshots" aria-labelledby="shots-h">
+      <h2 id="shots-h">See it</h2>
+      <p class="muted">Screenshots of the built-in demo, a made-up lab, rendered from the Markdown HomelabScribe™ writes.</p>
+      <figure>
+        <a class="shot" href="assets/screenshot-overview.png" aria-label="Open the full-size screenshot"><img src="assets/screenshot-overview.png" alt="The overview page: hosts and every service grouped by category, with status, address and a plain-English description" width="1056" height="1445" loading="lazy"></a>
+        <figcaption><b>The overview.</b> Every host and service, grouped by category. Click for the full page.</figcaption>
+      </figure>
+      <figure>
+        <a class="shot" href="assets/screenshot-service.png" aria-label="Open the full-size screenshot"><img src="assets/screenshot-service.png" alt="A service page for Sonarr showing ports, storage, networks, connections, how to restart it, and a handwritten note kept across runs" width="1056" height="1459" loading="lazy"></a>
+        <figcaption><b>A service page.</b> Ports, storage, dependencies, how to restart it, and your own notes, kept on every run.</figcaption>
+      </figure>
+      <figure>
+        <a class="shot" href="assets/screenshot-break-glass.png" aria-label="Open the full-size screenshot"><img src="assets/screenshot-break-glass.png" alt="The break-glass guide: a plain-language page for family with what to do if the internet is down and which services matter most" width="1056" height="955" loading="lazy"></a>
+        <figcaption><b>The break-glass guide</b> (Pro). A plain-English page for family if you're unavailable.</figcaption>
+      </figure>
+    </section>
+
+    <section id="pricing" aria-labelledby="pricing-h">
+      <h2 id="pricing-h">Free vs Pro</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Feature</th><th scope="col">Free</th><th scope="col">Pro</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Docker hosts</th><td>1</td><td>Unlimited</td></tr>
+            <tr><th scope="row">Proxmox VMs and LXCs</th><td>–</td><td>Yes</td></tr>
+            <tr><th scope="row">Service, host and overview pages</th><td>Yes</td><td>Yes</td></tr>
+            <tr><th scope="row">Your notes preserved across runs</th><td>Yes</td><td>Yes</td></tr>
+            <tr><th scope="row">Changelog ("what changed this week")</th><td>–</td><td>Yes</td></tr>
+            <tr><th scope="row">Break-glass guide for family</th><td>–</td><td>Yes</td></tr>
+            <tr><th scope="row">Topology diagram</th><td>–</td><td>Yes</td></tr>
+            <tr><th scope="row">Built-in scheduler</th><td>–</td><td>Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">Pro is a license key, checked offline on your own machine. Pricing and the store open at launch.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>HomelabScribe™ and its logo are trademarks of HoneyBearTech. The core is open source under AGPL-3.0; the Pro features are source-available under a separate license. Neither license grants rights to the name or logo.</p>
+    <p class="live-only"><a href="https://github.com/HoneyBearTech/homelabscribe/blob/main/TRADEMARKS.md">Trademarks</a> · <a href="https://github.com/HoneyBearTech/homelabscribe/blob/main/SECURITY.md">Security policy</a> · <a href="https://github.com/HoneyBearTech/homelabscribe/blob/main/CHANGELOG.md">Changelog</a></p>
+    <p class="muted">No cookies, no analytics, no third-party requests on this page.</p>
+  </footer>
+</body>
+</html>
