@@ -5,7 +5,7 @@ import pytest
 from homelabscribe import licensing, pipeline
 from homelabscribe.collectors.npm import NpmCollector, parse_proxy_hosts
 from homelabscribe.config import Config, NpmConfig
-from homelabscribe.enrich import link_routes
+from homelabscribe.enrich import enrich, link_routes, load_catalog
 from homelabscribe.models import Host, Port, Route, Service, Snapshot
 from homelabscribe.renderer import Renderer
 
@@ -161,3 +161,49 @@ def test_routes_page_and_index_link(tmp_path):
     assert "_not matched to a scanned service_" in page and "`http://10.9.9.9:80`" in page
     assert "[Reverse proxy routes](routes.md)" in (tmp_path / "index.md").read_text()
     assert json.loads(snap.model_dump_json())["routes"][0]["service"] == "atlas/sonarr"
+
+
+def test_route_matches_a_hand_described_service_by_the_address_of_its_url():
+    from homelabscribe.config import ManualServiceConfig
+    from homelabscribe.manual import build
+
+    entries = [
+        ManualServiceConfig(name="pihole", host="pi", url="http://10.0.0.51/admin"),
+        ManualServiceConfig(name="nas-ui", host="nas", url="http://10.0.0.20:5000"),
+        ManualServiceConfig(name="nas-files", host="nas", url="http://10.0.0.20:5001"),
+    ]
+    hosts, svcs = build(entries, set())
+    enrich(svcs, load_catalog())  # the pipeline always enriches first; this is what sets each URL
+    routes = [
+        Route(
+            proxy="npm", domains=["dns.example.com"], forward_host="10.0.0.51", forward_port=443, https=True
+        ),
+        Route(proxy="npm", domains=["nas.example.com"], forward_host="10.0.0.20", forward_port=5000),
+    ]
+    link_routes(routes, hosts, svcs)
+    assert routes[0].service == "pi/pihole"
+    assert svcs[0].url == "http://10.0.0.51/admin"  # an explicit URL is never replaced
+    assert routes[1].service is None  # two services share that address: not guessed
+
+
+def test_doctor_reports_the_npm_login(monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    from homelabscribe.cli import app
+
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        "docker_hosts: []\nnpm:\n  - {name: edge, url: 'http://x:81', identity: a@b.c, secret: pw}\n"
+    )
+    monkeypatch.setattr(NpmCollector, "collect", lambda self: parse_proxy_hosts(ITEMS, "edge"))
+    out = CliRunner().invoke(app, ["doctor", "-c", str(cfg)]).output
+    assert "Nginx Proxy Manager 'edge': OK (2 proxy hosts)" in out and "pw" not in out
+
+    def boom(self):
+        raise RuntimeError("401")
+
+    monkeypatch.setattr(NpmCollector, "collect", boom)
+    assert (
+        "Nginx Proxy Manager 'edge': FAILED (RuntimeError)"
+        in CliRunner().invoke(app, ["doctor", "-c", str(cfg)]).output
+    )
