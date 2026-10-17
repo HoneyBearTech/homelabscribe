@@ -50,10 +50,11 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum ./* > SHA256SUMS
-      - name: SBOM (SPDX)
+      - name: SBOM (SPDX) of the wheel and every package it installs
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          path: .
+          # The smoke-test environment above holds the wheel plus the exact dependency versions pip chose.
+          path: ${{ runner.temp }}/smoke
           format: spdx-json
           output-file: dist/sbom.spdx.json
           upload-artifact: false

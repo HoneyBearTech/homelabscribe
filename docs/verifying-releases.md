@@ -35,6 +35,6 @@ gh attestation verify homelabscribe-X.Y.Z.tar.gz --repo HoneyBearTech/homelabscr
 gh attestation verify oci://ghcr.io/honeybeartech/homelabscribe:X.Y.Z --repo HoneyBearTech/homelabscribe
 ```
 
-`sbom.spdx.json` lists every component in the release.
+`sbom.spdx.json` lists the HomelabScribe wheel and every Python package that `pip install` pulled in alongside it, with their versions.
 
 Release notes list fixed vulnerabilities. Found a mismatch? Treat it as a security issue and follow [SECURITY.md](../SECURITY.md).
