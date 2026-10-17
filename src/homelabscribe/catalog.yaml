@@ -78,3 +78,4 @@
 - {match: [spoolman], name: Spoolman, category: Home, description: "Tracks 3D-printer filament spools and how much is left on each."}
 - {match: [minecraft-bedrock-server, minecraft-server], name: Minecraft Server, category: Games, description: "A Minecraft game server."}
 - {match: [homelabscribe], name: HomelabScribe, category: Infrastructure, description: "Writes the documentation you're reading."}
+- {match: [haspelsync, bambulab-ams-spoolman-filamentstatus], name: HaspelSync, category: Home, description: "Keeps Spoolman up to date with the filament each Bambu Lab print uses."}
