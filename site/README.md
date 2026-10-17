@@ -19,7 +19,7 @@ HSTS is sent from `_headers` (`max-age` six months, no `includeSubDomains` or `p
 
 ## Launch switch
 
-The page starts in pre-launch mode: `<body class="prelaunch">` hides the GitHub, docs and install links and shows "Public release coming soon". When the repository and the PyPI package are public, remove `class="prelaunch"` from `<body>` in `index.html`.
+The site went live on 2026-10-17, together with the public repository and the PyPI package. A `prelaunch` class on `<body>` in `index.html` is the switch: with it, the page hides the GitHub, docs and install links and shows "Public release coming soon"; without it (the current state), those links show. Add the class back to return to pre-launch mode.
 
 ## Keeping it in sync
 

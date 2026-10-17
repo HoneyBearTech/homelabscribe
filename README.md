@@ -5,10 +5,17 @@
 [![CI](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/ci.yml/badge.svg)](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/codeql.yml/badge.svg)](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/HoneyBearTech/homelabscribe/badge)](https://scorecard.dev/viewer/?uri=github.com/HoneyBearTech/homelabscribe)
-<!-- TODO: BP_ID - register at bestpractices.dev after the repo goes public, then uncomment and replace <BP_ID>
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/<BP_ID>/badge)](https://www.bestpractices.dev/projects/<BP_ID>)
-[![OpenSSF Baseline](https://www.bestpractices.dev/projects/<BP_ID>/baseline)](https://www.bestpractices.dev/projects/<BP_ID>)
--->
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15630/badge)](https://www.bestpractices.dev/projects/15630)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/15630/baseline)](https://www.bestpractices.dev/projects/15630)
+[![PyPI](https://img.shields.io/pypi/v/homelabscribe)](https://pypi.org/project/homelabscribe/)
+[![Python versions](https://img.shields.io/pypi/pyversions/homelabscribe)](https://pypi.org/project/homelabscribe/)
+[![PyPI downloads per month](https://img.shields.io/pypi/dm/homelabscribe)](https://pypistats.org/packages/homelabscribe)
+[![Latest release](https://img.shields.io/github/v/release/HoneyBearTech/homelabscribe)](https://github.com/HoneyBearTech/homelabscribe/releases/latest)
+[![Container image on GHCR](https://img.shields.io/badge/ghcr.io-homelabscribe-2496ED?logo=docker&logoColor=white)](https://github.com/HoneyBearTech/homelabscribe/pkgs/container/homelabscribe)
+[![License](https://img.shields.io/pypi/l/homelabscribe)](LICENSE)
+[![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Last commit](https://img.shields.io/github/last-commit/HoneyBearTech/homelabscribe)](https://github.com/HoneyBearTech/homelabscribe/commits/main)
+[![Website](https://img.shields.io/badge/website-homelabscribe.com-FFB938)](https://homelabscribe.com)
 
 **Documentation for your homelab that writes itself, and keeps your notes.**
 
