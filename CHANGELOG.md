@@ -6,9 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-17
+
+First release with signed artifacts. Functionally identical to 0.2.0.
+
+### Fixed
+- The release workflow failed to sign and attest the container image because the registry name has to be lowercase. 0.2.0 was published to PyPI and GHCR but has no signatures, checksums, SBOM or GitHub release; use 0.2.1 or later if you want to verify what you install ([verifying releases](docs/verifying-releases.md)).
+
 ## [0.2.0] - 2026-10-17
 
-First public release.
+First public release (PyPI and GHCR only; see 0.2.1).
 
 ### Added
 - Project documentation in `docs/`, security policy, governance, contribution and support guides.
