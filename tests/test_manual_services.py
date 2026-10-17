@@ -80,3 +80,16 @@ def test_pages_and_break_glass_for_a_hand_described_pihole(tmp_path):
 def test_host_model_labels():
     assert Host(name="a", kind="manual").type_label == "Added by hand"
     assert Host(name="a", kind="docker").type_label == "Docker host"
+
+
+def test_break_glass_names_every_dns_server(tmp_path):
+    cfg = _cfg(
+        tmp_path,
+        ManualServiceConfig(name="pihole", host="pi"),
+        ManualServiceConfig(name="pihole", host="pi-two"),
+    )
+    snap = pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[]).snapshot
+    Renderer(tmp_path / "docs", licensing.PRO_FEATURES).render(snap, [], BreakGlassConfig(owner="Sam"))
+    guide = (tmp_path / "docs" / "break-glass.md").read_text()
+    assert "**Pi-hole** (on the machine **pi**) and **Pi-hole** (on the machine **pi-two**)" in guide
+    assert "those machines, one at a time (see below)," in guide

@@ -14,9 +14,9 @@ If nothing loads on any device, the problem is most likely the internet provider
 2. Plug the modem back in first. Wait until its lights settle (about 3 minutes).
 3. Plug the router back in. Wait 5 more minutes and try again.
 4. Still down? Call the internet provider.
-{% if dns %}
+{% if dns_servers %}
 
-**If phones and laptops say they're connected but no websites load:** this house uses **{{ dns.title }}** to look up website names, and it runs on the machine **{{ dns.host }}**. Restarting that machine (see below) usually fixes it.
+**If phones and laptops say they're connected but no websites load:** this house uses {% for d in dns_servers %}**{{ d.title }}** (on the machine **{{ d.host }}**){% if not loop.last %}{{ " and " if loop.revindex == 2 else ", " }}{% endif %}{% endfor %} to look up website names. Restarting {{ "that machine (see below)" if dns_servers|length == 1 else "those machines, one at a time (see below)," }} usually fixes it.
 {% endif %}
 
 ## What matters most
