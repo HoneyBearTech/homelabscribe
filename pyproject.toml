@@ -58,6 +58,7 @@ include = [
   "/tests",
   "/docs",
   "/tools",
+  "/requirements",
   "/LICENSE",
   "/README.md",
   "/CHANGELOG.md",

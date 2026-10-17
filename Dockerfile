@@ -9,9 +9,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     HOMELABSCRIBE_CONFIG=/config/homelabscribe.yaml
 
 WORKDIR /app
+# Dependencies first, from a hash-pinned lockfile (regenerate it as described in docs/dependencies.md).
+COPY requirements/runtime.txt ./requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir . && useradd --uid 1000 --create-home homelabscribe
+RUN pip install --no-cache-dir --no-deps . && useradd --uid 1000 --create-home homelabscribe
 
 USER homelabscribe
 WORKDIR /data

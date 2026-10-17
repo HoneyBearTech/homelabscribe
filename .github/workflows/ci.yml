@@ -22,7 +22,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e '.[dev]'
+      - run: pip install --require-hashes -r requirements/ci.txt
+      - run: pip install --no-deps -e .
       - run: ruff check .
       - run: ruff format --check .
       # Coverage floor: fail below 80% statement coverage (docs: CONTRIBUTING.md).
@@ -40,7 +41,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install build && python -m build
+      - run: pip install --require-hashes -r requirements/release.txt && python -m build
       - name: Build the container image (not pushed)
         run: docker build -t homelabscribe:ci .
       - name: Smoke-test the container image

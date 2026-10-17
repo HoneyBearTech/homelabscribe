@@ -8,6 +8,16 @@ Direct runtime dependencies are listed in [`pyproject.toml`](../pyproject.toml):
 
 Dependencies are installed with pip from PyPI by the standard build tooling (`pip install .` / `python -m build`); the Docker image is built from the official `python:3.12-slim` image, pinned by digest in the `Dockerfile` (Dependabot proposes digest updates). There are no vendored copies and no committed binaries.
 
+## Pinning
+
+Everything CI, the release workflow and the container image install comes from **hash-pinned lockfiles** in [`requirements/`](../requirements): `runtime.txt` (what the image installs), `ci.txt` (runtime plus test and lint tools) and `release.txt` (build and twine). They are installed with `pip install --require-hashes`, so a changed or tampered package is refused. The base image is pinned by digest and every GitHub Action by commit SHA. The lockfiles are universal (all supported Python versions and platforms) and are regenerated with [uv](https://docs.astral.sh/uv/); the exact command is the first line of each file. For example:
+
+```bash
+uv pip compile pyproject.toml --extra dev --universal --generate-hashes --python-version 3.11 --no-header -o requirements/ci.txt
+```
+
+Dependabot proposes updates to the lockfiles weekly, in one grouped pull request.
+
 ## Tracking
 
 - Versions are declared as minimums in `pyproject.toml`; resolved versions appear in each release's SBOM.

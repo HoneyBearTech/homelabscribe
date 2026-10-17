@@ -31,6 +31,8 @@ python -m pip install build && python -m build   # wheel and sdist into dist/
 docker build -t homelabscribe .  # container image
 ```
 
+When you change dependencies in `pyproject.toml`, regenerate the hash-pinned lockfiles in `requirements/` (commands in [docs/dependencies.md](docs/dependencies.md)) and commit them with the change.
+
 ## What a pull request must have
 
 1. **Tests.** New behavior ships with tests; bug fixes with a test that failed before. New parsers also get a property-based test in `tests/test_fuzz_parsers.py` (Hypothesis). Tests use fakes: no network and no Docker daemon. Bug fixes add a regression test; the project aims for at least half of its bug fixes to carry one, and every change must keep the suite green. CI enforces a coverage floor of 80%.
