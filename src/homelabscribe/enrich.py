@@ -134,6 +134,18 @@ def _route_target(
     return by_alias[0] if len(by_alias) == 1 else None
 
 
+def link_guests(hosts: list[Host], services: list[Service]) -> None:
+    """Tie a Proxmox VM or LXC to the Docker host it is, when the two share a name (atlas on atlas)."""
+    docker = {h.name.lower(): h for h in hosts if h.kind == "docker"}
+    for h in docker.values():
+        h.guest_of = None
+    for s in services:
+        s.runs_host = None
+        h = docker.get(s.name.lower()) if s.kind in ("vm", "lxc") else None
+        if h is not None and h.guest_of is None:
+            s.runs_host, h.guest_of = h.name, s.id
+
+
 def link_routes(routes: list[Route], hosts: list[Host], services: list[Service]) -> None:
     """Match each reverse-proxy route to the service it forwards to, and give that service its URL.
 

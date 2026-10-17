@@ -8,6 +8,10 @@ tags: [homelab, host]
 | | |
 | --- | --- |
 | Type | {{ h.type_label }} |
+{% if h.guest_of and service_by_id(h.guest_of) %}
+{% set g = service_by_id(h.guest_of) %}
+| Runs as | {{ "VM" if g.kind == "vm" else "LXC" }} [{{ g.title }}](../services/{{ page(g) }}.md) on [{{ g.host }}](../hosts/{{ host_slug_by_name(g.host) }}.md) |
+{% endif %}
 {% if h.address %}
 | Address | {{ h.address }} |
 {% endif %}

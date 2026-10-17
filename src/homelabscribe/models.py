@@ -38,6 +38,7 @@ class Host(BaseModel):
     cpus: int | None = None
     memory_gb: float | None = None
     version: str | None = None
+    guest_of: str | None = None  # id of the Proxmox VM/LXC this Docker host runs in, when we can tell
 
     @property
     def type_label(self) -> str:
@@ -71,6 +72,7 @@ class Service(BaseModel):
     # Hand-described services (config `manual_services`)
     restart_hint: str | None = None
     is_dns: bool = False
+    runs_host: str | None = None  # a VM/LXC that is itself a scanned Docker host: that host's name
     # Filled in by enrichment
     display_name: str | None = None
     description: str | None = None

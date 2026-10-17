@@ -16,6 +16,9 @@ tags: [homelab, {{ s.category|lower|replace(" ", "-")|replace("(", "")|replace("
 | --- | --- |
 | Runs on | [{{ s.host }}](../hosts/{{ host_slug_by_name(s.host) }}.md) |
 | Status | {{ s.status }} |
+{% if s.runs_host %}
+| Is the Docker host | [{{ s.runs_host }}](../hosts/{{ host_slug_by_name(s.runs_host) }}.md) |
+{% endif %}
 {% if address(s) %}
 | Address | {{ address(s) }} |
 {% endif %}
