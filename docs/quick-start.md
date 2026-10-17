@@ -11,7 +11,7 @@ Open `homelabscribe-demo/index.md`. It is a made-up homelab with every Pro page 
 
 ## 2. Scan your own Docker host
 
-1. Run a read-only [socket proxy](installing.md#docker-compose) next to Docker (or point at the socket directly if HomelabScribe runs on the same machine).
+1. Run a read-only [socket proxy](installing.md#docker-compose) next to Docker (or point at the socket directly if HomelabScribe™ runs on the same machine).
 2. Copy `homelabscribe.example.yaml` to `homelabscribe.yaml` and set your host:
 
    ```yaml

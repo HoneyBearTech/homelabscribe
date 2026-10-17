@@ -1,6 +1,6 @@
 # Security requirements
 
-What HomelabScribe is designed to guarantee, and what it is not.
+What HomelabScribe™ is designed to guarantee, and what it is not.
 
 ## Requirements
 

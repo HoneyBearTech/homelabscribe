@@ -1,6 +1,6 @@
 # Assurance case
 
-Claim: HomelabScribe can be pointed at a Docker host or Proxmox cluster without changing it, leaking secret values, or contacting anyone else, and its releases can be verified.
+Claim: HomelabScribe™ can be pointed at a Docker host or Proxmox cluster without changing it, leaking secret values, or contacting anyone else, and its releases can be verified.
 
 ## Threat model
 

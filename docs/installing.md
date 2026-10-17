@@ -1,6 +1,6 @@
 # Installing
 
-Requirements: Python 3.11+ (pip/pipx) or Docker. HomelabScribe only needs *read* access to Docker, and read-only API access to Proxmox.
+Requirements: Python 3.11+ (pip/pipx) or Docker. HomelabScribe™ only needs *read* access to Docker, and read-only API access to Proxmox.
 
 ## pipx
 

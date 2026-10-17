@@ -69,7 +69,7 @@
     <rect x="-26" y="-96" width="52" height="7" fill="#0B1626" opacity="0.35"/>
   </g>
 </svg>
-  <text x="292" y="150" text-anchor="start" font-family="'Avenir Next', Avenir, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="72" letter-spacing="-1.2" fill="#F5F1E8">Homelab<tspan fill="#FFB938">Scribe</tspan></text>
+  <text x="292" y="150" text-anchor="start" font-family="'Avenir Next', Avenir, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="72" letter-spacing="-1.2" fill="#F5F1E8">Homelab<tspan fill="#FFB938">Scribe</tspan><tspan font-size="24" font-weight="500" letter-spacing="0" dy="-30" fill="#B8C9E0"> ™</tspan></text>
   <text font-family="'Avenir Next', Avenir, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="26" font-weight="500" fill="#B8C9E0">
     <tspan x="296" y="198">Documentation for your homelab that</tspan>
     <tspan x="296" y="232">writes itself, and keeps your notes.</tspan>

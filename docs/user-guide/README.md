@@ -14,7 +14,7 @@ Your notes here.
 <!-- homelabscribe:notes:end -->
 ```
 
-Write inside the block. HomelabScribe rewrites everything else but copies the block forward. If a service disappears and its page has notes, the page moves to `archive/`.
+Write inside the block. HomelabScribe™ rewrites everything else but copies the block forward. If a service disappears and its page has notes, the page moves to `archive/`.
 
 ## Naming and describing things
 

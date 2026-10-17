@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes go to the latest released minor version. While HomelabScribe is pre-1.0, older versions are not patched; upgrade instead. See [SUPPORT.md](SUPPORT.md).
+Security fixes go to the latest released minor version. While HomelabScribe™ is pre-1.0, older versions are not patched; upgrade instead. See [SUPPORT.md](SUPPORT.md).
 
 ## Reporting a vulnerability
 

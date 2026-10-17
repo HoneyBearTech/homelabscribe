@@ -5,7 +5,7 @@
 | Actor | Does |
 | --- | --- |
 | **Operator** | Writes `homelabscribe.yaml`, runs `homelabscribe run` (or schedules it), reads and annotates the Markdown |
-| **HomelabScribe** | Reads Docker/Proxmox state, writes snapshots and Markdown. Never changes a monitored system |
+| **HomelabScribe™** | Reads Docker/Proxmox state, writes snapshots and Markdown. Never changes a monitored system |
 | **Docker daemon / socket proxy** | Answers read-only API calls (containers, info, networks) |
 | **Proxmox API** | Answers read-only calls for VMs and LXCs (Pro) |
 | **Maintainer** | Signs Pro license keys offline with a private key that is never in the repository |

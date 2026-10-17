@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/banner.png" alt="HomelabScribe: documentation for your homelab that writes itself, and keeps your notes" width="100%">
+  <img src="docs/assets/banner.png" alt="HomelabScribe™: documentation for your homelab that writes itself, and keeps your notes" width="100%">
 </h1>
 
 [![CI](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/ci.yml/badge.svg)](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/ci.yml)
@@ -12,7 +12,7 @@
 
 **Documentation for your homelab that writes itself, and keeps your notes.**
 
-HomelabScribe scans your Docker hosts (and, with Pro, your Proxmox cluster) and writes readable Markdown docs: one page per service, one per host, and an overview. Run it again tomorrow and the docs update themselves, while anything you wrote in a page's **Notes** section stays exactly as you left it.
+HomelabScribe™ scans your Docker hosts (and, with Pro, your Proxmox cluster) and writes readable Markdown docs: one page per service, one per host, and an overview. Run it again tomorrow and the docs update themselves, while anything you wrote in a page's **Notes** section stays exactly as you left it.
 
 It drops straight into an Obsidian vault, a Git repo, or any Markdown viewer.
 
@@ -146,3 +146,7 @@ Architecture: collectors (Docker, Proxmox) → enrichment (app catalog, labels) 
 ## License
 
 The core is [AGPL-3.0](LICENSE). Everything in `src/homelabscribe/pro/` is source-available under the [HomelabScribe Pro License](src/homelabscribe/pro/LICENSE-COMMERCIAL.md) and needs a Pro key to use.
+
+## Trademarks
+
+HomelabScribe™ and its logo are trademarks of HoneyBearTech. The code licenses do not grant rights to the name or logo; see [TRADEMARKS.md](TRADEMARKS.md).
