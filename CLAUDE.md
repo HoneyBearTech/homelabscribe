@@ -66,6 +66,11 @@ Pipeline: **collectors → enrichment → snapshot (JSON) → diff → renderers
 - Public docs live in `docs/` (tracked). Generated output defaults to `homelabscribe-docs/` (git-ignored).
 - Commits: small, imperative subject lines, signed off (`git commit -s`, DCO). Release by tagging `vX.Y.Z` (see `/release`).
 
+- Merging: the `main protection` ruleset needs one code-owner approval, which the sole maintainer cannot give
+  themselves, so the owner (and Claude for them) merges with `gh pr merge --squash --admin` once every required check is green; the
+  admin bypass is pull-request-only, so direct pushes and force pushes stay blocked. See GOVERNANCE.md.
+- Fuzzing: `fuzz/fuzz_properties.py` runs the Hypothesis properties of `tests/test_fuzz_parsers.py` under Atheris (Linux
+  x86_64 only; `.github/workflows/fuzz.yml`, deps in `requirements/fuzz.txt`). A new parser gets a property and a target.
 - GitLab copy: the owner's self-hosted GitLab (CE, LAN only; details in Chronos) holds a mirror. GitHub stays
   the home (OpenSSF badges, Scorecard, Dependabot, releases, Sigstore signing); every change goes to GitHub
   as a PR, never to GitLab. `.gitlab-ci.yml` mirrors GitHub on a schedule (fast-forward only, `MIRROR_TOKEN`

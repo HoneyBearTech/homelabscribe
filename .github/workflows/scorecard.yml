@@ -5,6 +5,9 @@ on:
     branches: [main]
   schedule:
     - cron: "41 2 * * 6" # weekly, Saturday 02:41 UTC
+  # Branch protection lives in a ruleset, which does not fire branch_protection_rule: run it by hand after
+  # changing the rules (Actions > OpenSSF Scorecard > Run workflow) to refresh the score.
+  workflow_dispatch:
 
 # Read-only at the top; the job asks for exactly what it needs.
 permissions:
