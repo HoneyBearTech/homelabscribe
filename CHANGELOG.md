@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- A workflow that mirrors each release's container image from GHCR to Docker Hub (same digest, so the release attestation applies to both).
+- The image is also on Docker Hub (`honeybeartech/homelabscribe`). A workflow that mirrors each release's container image from GHCR to Docker Hub (same digest, so the release attestation applies to both).
 
 ## [0.2.1] - 2026-10-17
 

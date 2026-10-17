@@ -1,6 +1,6 @@
 # Verifying releases
 
-Each tagged release (`vX.Y.Z`) publishes: Python wheel and sdist, a container image on GHCR, `SHA256SUMS`, an SBOM (SPDX JSON), and build provenance attestations. Artifacts are signed with [Sigstore cosign](https://docs.sigstore.dev/) keyless signing tied to this repository's release workflow; there is no long-lived signing key.
+Each tagged release (`vX.Y.Z`) publishes: Python wheel and sdist, a container image on GHCR (mirrored to Docker Hub with the same digest), `SHA256SUMS`, an SBOM (SPDX JSON), and build provenance attestations. Artifacts are signed with [Sigstore cosign](https://docs.sigstore.dev/) keyless signing tied to this repository's release workflow; there is no long-lived signing key.
 
 > This is the process the release workflow implements. Run it against your first real release to confirm.
 
@@ -33,6 +33,8 @@ Build provenance is published as GitHub artifact attestations:
 ```bash
 gh attestation verify homelabscribe-X.Y.Z.tar.gz --repo HoneyBearTech/homelabscribe
 gh attestation verify oci://ghcr.io/honeybeartech/homelabscribe:X.Y.Z --repo HoneyBearTech/homelabscribe
+# The Docker Hub copy is the same image (identical digest), so this works for it too:
+gh attestation verify oci://docker.io/honeybeartech/homelabscribe:X.Y.Z --repo HoneyBearTech/homelabscribe
 ```
 
 `sbom.spdx.json` lists the HomelabScribe wheel and every Python package that `pip install` pulled in alongside it, with their versions.

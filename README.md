@@ -11,6 +11,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/homelabscribe)](https://pypi.org/project/homelabscribe/)
 [![PyPI downloads per month](https://img.shields.io/pypi/dm/homelabscribe)](https://pypistats.org/packages/homelabscribe)
 [![Latest release](https://img.shields.io/github/v/release/HoneyBearTech/homelabscribe)](https://github.com/HoneyBearTech/homelabscribe/releases/latest)
+[![Docker pulls](https://img.shields.io/docker/pulls/honeybeartech/homelabscribe?logo=docker&logoColor=white)](https://hub.docker.com/r/honeybeartech/homelabscribe)
 [![Container image on GHCR](https://img.shields.io/badge/ghcr.io-homelabscribe-2496ED?logo=docker&logoColor=white)](https://github.com/HoneyBearTech/homelabscribe/pkgs/container/homelabscribe)
 [![License](https://img.shields.io/pypi/l/homelabscribe)](LICENSE)
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)

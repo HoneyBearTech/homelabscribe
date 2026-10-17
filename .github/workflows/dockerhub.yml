@@ -13,6 +13,10 @@ on:
       version:
         description: "Release version to mirror, as tagged on GHCR (for example 0.2.1)"
         required: true
+      latest:
+        description: "Also point the latest tag at it (only for the newest release)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,9 +32,22 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check that the token may push
+        env:
+          HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          hub=$(echo "$HUB_USER" | tr '[:upper:]' '[:lower:]')
+          code=$(curl -s -o "$RUNNER_TEMP/hub.json" -w '%{http_code}' -u "$HUB_USER:$HUB_TOKEN" \
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$hub/homelabscribe:pull,push")
+          if [ "$code" != "200" ]; then
+            echo "::error::Docker Hub refused a push token (HTTP $code). DOCKERHUB_USERNAME must be the account name and DOCKERHUB_TOKEN an access token with Read & Write permission on all repositories."
+            exit 1
+          fi
       - name: Copy the image (same digest) to Docker Hub
         env:
           EVENT: ${{ github.event_name }}
+          WANT_LATEST: ${{ inputs.latest }}
           VERSION_INPUT: ${{ inputs.version }}
           RUN_TAG: ${{ github.event.workflow_run.head_branch }}
           OWNER: ${{ github.repository_owner }}
@@ -47,7 +64,7 @@ jobs:
           src="ghcr.io/$owner/homelabscribe"
           digest=$(docker buildx imagetools inspect "$src:$version" --format '{{.Manifest.Digest}}')
           tags="$version ${version%.*}"
-          if [ "$EVENT" != "workflow_dispatch" ]; then tags="$tags latest"; fi
+          if [ "$EVENT" != "workflow_dispatch" ] || [ "$WANT_LATEST" = "true" ]; then tags="$tags latest"; fi
           for tag in $tags; do
             docker buildx imagetools create --tag "docker.io/$hub/homelabscribe:$tag" "$src@$digest"
           done
