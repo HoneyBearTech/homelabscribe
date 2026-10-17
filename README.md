@@ -50,7 +50,28 @@ homelabscribe-docs/
 └── topology.md         # Pro: Mermaid diagram of hosts, services and dependencies
 ```
 
-HomelabScribe recognizes ~45 common self-hosted apps (the *arr stack, Plex, Pi-hole, Traefik, Home Assistant, Vaultwarden, Grafana and more) and describes them in plain language. Add your own with labels or a catalog file.
+HomelabScribe recognizes 60+ common self-hosted apps (the *arr stack, Plex, Pi-hole, Traefik, Home Assistant, Vaultwarden, Grafana and more) and describes them in plain language. Add your own with labels or a catalog file.
+
+It can also read [Nginx Proxy Manager](https://nginxproxymanager.com) to show each app's real web address, and lets you describe things it can't scan, such as Pi-hole on a Raspberry Pi, by hand.
+
+## See it
+
+Screenshots of the built-in demo (a made-up lab), rendered from the Markdown it writes. Open the same files in Obsidian, GitHub or any Markdown viewer.
+
+<p align="center">
+  <img src="docs/assets/screenshot-overview.png" alt="The overview page: hosts and every service grouped by category, with status, address and a plain-English description" width="760"><br>
+  <sub><b>The overview</b>: every host and service, grouped by category.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-service.png" alt="A service page for Sonarr showing ports, storage, networks, connections, how to restart it, and a handwritten note kept across runs" width="760"><br>
+  <sub><b>A service page</b>: ports, storage, dependencies, how to restart it, and your own notes, which are kept on every run.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-break-glass.png" alt="The break-glass guide, a plain-language page for family: what to do if the internet is down and which services matter most" width="760"><br>
+  <sub><b>The break-glass guide</b> (Pro): a plain-English page for family if you're unavailable.</sub>
+</p>
 
 ## Free vs Pro
 
