@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -44,6 +45,15 @@ class NpmConfig(BaseModel):
     verify_ssl: bool = True
 
 
+class NotifyConfig(BaseModel):
+    """Where to send a message after a scan: an ntfy topic URL or a Discord webhook URL."""
+
+    type: Literal["ntfy", "discord"]
+    url: str  # use ${NOTIFY_URL}: a Discord webhook URL is a secret
+    token: str | None = None  # ntfy access token, if the topic needs one
+    on: list[Literal["changes", "errors"]] = Field(default_factory=lambda: ["changes", "errors"])
+
+
 class ManualServiceConfig(BaseModel):
     """Something the scanners can't see (Pi-hole on a Raspberry Pi, a NAS, a router...)."""
 
@@ -64,6 +74,7 @@ class Config(BaseModel):
     proxmox: list[ProxmoxConfig] = Field(default_factory=list)
     npm: list[NpmConfig] = Field(default_factory=list)
     manual_services: list[ManualServiceConfig] = Field(default_factory=list)
+    notify: list[NotifyConfig] = Field(default_factory=list)
     catalog_file: Path | None = None  # extra/override catalog entries
     license_key: str | None = None
     breakglass: BreakGlassConfig = Field(default_factory=BreakGlassConfig)

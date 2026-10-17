@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Notifications (Pro): a `notify` list in the config sends the changes found by a scan, and sources that could not be read, to an ntfy topic or a Discord webhook. Opt-in; an unreadable source is reported once, not on every run, and again when it recovers.
 - Coverage-guided fuzzing (Atheris, `fuzz/`) of the parser properties, run weekly and on pull requests that touch the code.
 - `.gitlab-ci.yml` for the copy of the repository on the maintainer's self-hosted GitLab: a scheduled job mirrors `main` and the tags from GitHub (fast-forward only), and the lint, tests, secret scan and workflow lint re-run on every commit it receives. GitHub stays the home.
 - An access table in GOVERNANCE.md listing who and what can reach each sensitive resource.
