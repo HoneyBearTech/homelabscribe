@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/banner.png" alt="HomelabScribe™: documentation for your homelab that writes itself, and keeps your notes" width="100%">
+  <img src="https://homelabscribe.com/assets/banner.png" alt="HomelabScribe™: documentation for your homelab that writes itself, and keeps your notes" width="100%">
 </h1>
 
 [![CI](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/ci.yml/badge.svg)](https://github.com/HoneyBearTech/homelabscribe/actions/workflows/ci.yml)
@@ -59,17 +59,17 @@ It can also read [Nginx Proxy Manager](https://nginxproxymanager.com) to show ea
 Screenshots of the built-in demo (a made-up lab), rendered from the Markdown it writes. Open the same files in Obsidian, GitHub or any Markdown viewer.
 
 <p align="center">
-  <img src="docs/assets/screenshot-overview.png" alt="The overview page: hosts and every service grouped by category, with status, address and a plain-English description" width="760"><br>
+  <img src="https://homelabscribe.com/assets/screenshot-overview.png" alt="The overview page: hosts and every service grouped by category, with status, address and a plain-English description" width="760"><br>
   <sub><b>The overview</b>: every host and service, grouped by category.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-service.png" alt="A service page for Sonarr showing ports, storage, networks, connections, how to restart it, and a handwritten note kept across runs" width="760"><br>
+  <img src="https://homelabscribe.com/assets/screenshot-service.png" alt="A service page for Sonarr showing ports, storage, networks, connections, how to restart it, and a handwritten note kept across runs" width="760"><br>
   <sub><b>A service page</b>: ports, storage, dependencies, how to restart it, and your own notes, which are kept on every run.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-break-glass.png" alt="The break-glass guide, a plain-language page for family: what to do if the internet is down and which services matter most" width="760"><br>
+  <img src="https://homelabscribe.com/assets/screenshot-break-glass.png" alt="The break-glass guide, a plain-language page for family: what to do if the internet is down and which services matter most" width="760"><br>
   <sub><b>The break-glass guide</b> (Pro): a plain-English page for family if you're unavailable.</sub>
 </p>
 
