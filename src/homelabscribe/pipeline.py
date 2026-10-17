@@ -6,10 +6,11 @@ from dataclasses import dataclass, field
 
 from homelabscribe import manual, store
 from homelabscribe.collectors.docker import DockerCollector
+from homelabscribe.collectors.npm import NpmCollector
 from homelabscribe.collectors.proxmox import ProxmoxCollector
 from homelabscribe.config import Config
 from homelabscribe.diff import Diff, compare
-from homelabscribe.enrich import enrich, load_catalog
+from homelabscribe.enrich import enrich, link_routes, load_catalog
 from homelabscribe.models import Snapshot
 from homelabscribe.renderer import Renderer
 
@@ -54,6 +55,13 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         snap.services += manual_services
 
     enrich(snap.services, load_catalog(cfg.catalog_file))
+
+    for proxy in cfg.npm:
+        try:
+            snap.routes += NpmCollector(proxy).collect()
+        except Exception as e:  # a proxy that is down shouldn't stop the scan
+            errors.append(f"Nginx Proxy Manager '{proxy.name}': {type(e).__name__}")
+    link_routes(snap.routes, snap.hosts, snap.services)
 
     previous = store.recent(cfg.state_dir, 1)
     store.save(snap, cfg.state_dir)

@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from importlib import resources
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
-from homelabscribe.models import Service
+from homelabscribe.models import Host, Route, Service
 
 _TRAEFIK_HOST = re.compile(r"Host\(`([^`]+)`\)")
 
@@ -96,3 +97,39 @@ def _disambiguate(services: list[Service]) -> None:
         for s in group:
             if s.name.lower() != s.title.lower():
                 s.display_name = f"{s.title} ({s.name})"
+
+
+def _host_names(host: Host) -> set[str]:
+    names = {host.name.lower()}
+    if host.link_host:
+        names.add(host.link_host.lower())
+    if host.address and (parsed := urlparse(host.address).hostname):
+        names.add(parsed.lower())
+    return names
+
+
+def link_routes(routes: list[Route], hosts: list[Host], services: list[Service]) -> None:
+    """Match each reverse-proxy route to the service it forwards to, and give that service its URL.
+
+    A route forwards to a host (name or IP) and a port. That is a service when the host is the
+    service's machine and the port is one it publishes, or when the host is the container's own
+    name (Docker networks resolve it) and the port is the container's port. A URL set by a label
+    or Traefik rule always wins.
+    """
+    names = {h.name: _host_names(h) for h in hosts}
+    for route in routes:
+        target = route.forward_host.lower()
+        match = None
+        for s in services:
+            published = {p.host for p in s.ports if p.host}
+            on_machine = target in names.get(s.host, {s.host.lower()}) and route.forward_port in published
+            by_container = target == s.name.lower() and route.forward_port in {p.container for p in s.ports}
+            if on_machine or by_container:
+                match = s
+                break
+        if match is None:
+            continue
+        route.service = match.id
+        if match.url is None and route.enabled:
+            scheme = "https" if route.https else "http"
+            match.url = f"{scheme}://{route.domains[0]}"

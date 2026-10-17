@@ -34,6 +34,16 @@ class BreakGlassConfig(BaseModel):
     critical: list[str] = Field(default_factory=list)  # service names that matter most
 
 
+class NpmConfig(BaseModel):
+    """Nginx Proxy Manager. Use a dedicated NPM user with view-only access."""
+
+    name: str = "npm"
+    url: str  # the admin UI/API, e.g. http://192.168.1.52:81
+    identity: str  # the NPM user's email
+    secret: str  # its password; use ${NPM_PASSWORD} so it stays out of the file
+    verify_ssl: bool = True
+
+
 class ManualServiceConfig(BaseModel):
     """Something the scanners can't see (Pi-hole on a Raspberry Pi, a NAS, a router...)."""
 
@@ -52,6 +62,7 @@ class Config(BaseModel):
     state_dir: Path = Path(".homelabscribe")
     docker_hosts: list[DockerHostConfig] = Field(default_factory=lambda: [DockerHostConfig(name="docker")])
     proxmox: list[ProxmoxConfig] = Field(default_factory=list)
+    npm: list[NpmConfig] = Field(default_factory=list)
     manual_services: list[ManualServiceConfig] = Field(default_factory=list)
     catalog_file: Path | None = None  # extra/override catalog entries
     license_key: str | None = None

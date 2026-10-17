@@ -1,0 +1,20 @@
+---
+title: Reverse proxy routes
+tags: [homelab, homelabscribe, network]
+---
+# Reverse proxy routes
+
+_Which web addresses the reverse proxy sends where. Read from the proxy on each scan._
+
+| Address | Goes to | Forwards to | HTTPS | Enabled |
+| --- | --- | --- | --- | --- |
+{% for route in routes %}
+{% set svc = service_of(route) %}
+| {{ route.domains|join(", ") }} | {% if svc %}[{{ svc.title }}](services/{{ page(svc) }}.md){% else %}_not matched to a scanned service_{% endif %} | `{{ route.forward_scheme }}://{{ route.forward_host }}:{{ route.forward_port }}` | {{ "yes" if route.https else "no" }} | {{ "yes" if route.enabled else "no" }} |
+{% endfor %}
+
+## Notes
+
+<!-- homelabscribe:notes:start -->
+_Your notes go here. HomelabScribe never overwrites this section._
+<!-- homelabscribe:notes:end -->
