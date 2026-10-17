@@ -17,6 +17,8 @@ What HomelabScribe™ is designed to guarantee, and what it is not.
 - **The generated docs are a map of your lab** (hosts, ports, service names, paths). Treat the output folder as sensitive, especially if you publish it to Git.
 - **An exposed Docker API is not authenticated.** Bind the proxy to a trusted LAN address only.
 - **Config files may hold a Proxmox token or Pro key.** Keep `homelabscribe.yaml` out of Git and readable only by you.
-- It does not harden Docker, Proxmox or the host.
+- It does not harden Docker, Proxmox, Nginx Proxy Manager or the host.
+
+Nginx Proxy Manager: the API only issues a login token (it has no read-only token), so HomelabScribe logs in with the credentials in your config, reads the proxy hosts and discards the session token. It changes no proxy settings. Use an NPM user whose role is view-only, so a leaked config can't change your proxies.
 
 Credential handling: tokens come from the config or environment (`${VAR}`) and are used only to talk to the configured endpoint; they are not logged or rendered. Report problems via [SECURITY.md](../SECURITY.md).

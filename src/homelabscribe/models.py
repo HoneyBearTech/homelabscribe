@@ -86,11 +86,25 @@ class Service(BaseModel):
         return self.display_name or self.name
 
 
+class Route(BaseModel):
+    """A reverse-proxy entry: these domain names are forwarded to a host and port."""
+
+    proxy: str  # name of the proxy it came from (config `npm[].name`)
+    domains: list[str]
+    forward_scheme: str = "http"
+    forward_host: str
+    forward_port: int
+    https: bool = False  # the proxy serves these names over HTTPS
+    enabled: bool = True
+    service: str | None = None  # `Service.id` this route was matched to, if any
+
+
 class Snapshot(BaseModel):
     version: int = SNAPSHOT_VERSION
     taken_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     hosts: list[Host] = Field(default_factory=list)
     services: list[Service] = Field(default_factory=list)
+    routes: list[Route] = Field(default_factory=list)
 
     def visible_services(self) -> list[Service]:
         return sorted((s for s in self.services if not s.hidden), key=lambda s: (s.category, s.title.lower()))

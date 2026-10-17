@@ -180,13 +180,15 @@ class Renderer:
         services: list[Service] = ctx["services"]
         hosts: list[Host] = ctx["hosts"]
 
-        pro_pages = []
+        pages = []
+        if snap.routes:
+            pages.append(("Reverse proxy routes", "routes.md"))
         if "changelog" in self.features:
-            pro_pages.append(("What changed", "CHANGELOG.md"))
+            pages.append(("What changed", "CHANGELOG.md"))
         if "breakglass" in self.features:
-            pro_pages.append(("Break-glass guide for family", "break-glass.md"))
+            pages.append(("Break-glass guide for family", "break-glass.md"))
         if "diagrams" in self.features:
-            pro_pages.append(("Topology diagram", "topology.md"))
+            pages.append(("Topology diagram", "topology.md"))
 
         by_cat: dict[str, list[Service]] = defaultdict(list)
         for s in services:
@@ -196,7 +198,7 @@ class Renderer:
             self.env.get_template("index.md.j2").render(
                 **ctx,
                 by_category=sorted(by_cat.items()),
-                pro_pages=pro_pages,
+                pages=pages,
                 running=sum(1 for s in services if s.status == "running"),
                 by_hand=sum(1 for s in services if s.kind == "manual"),
             ),
@@ -210,6 +212,15 @@ class Renderer:
             self._write(
                 f"hosts/{ctx['host_slug'](h)}.md",
                 self.env.get_template("host.md.j2").render(**ctx, h=h, on_host=on_host),
+            )
+
+        if snap.routes:
+            by_id = {s.id: s for s in services}
+            self._write(
+                "routes.md",
+                self.env.get_template("routes.md.j2").render(
+                    **ctx, routes=snap.routes, service_of=lambda route: by_id.get(route.service or "")
+                ),
             )
 
         if "changelog" in self.features:

@@ -19,6 +19,15 @@ docker_hosts:
 #     token_value: ${PVE_TOKEN}
 #     verify_ssl: false              # self-signed certificate
 
+# Nginx Proxy Manager: reads its proxy hosts so service pages get their real web address and a
+# "Reverse proxy routes" page lists every domain. Create a dedicated NPM user that can only VIEW
+# proxy hosts; logging in only creates a session token and nothing is changed.
+# npm:
+#   - name: npm
+#     url: http://192.168.1.52:81
+#     identity: homelabscribe@example.com
+#     secret: ${NPM_PASSWORD}
+
 # Things the scanners can't see: Pi-hole on a Raspberry Pi, a NAS, a router. They get normal pages,
 # appear in the index, and can be listed under breakglass.critical. Only `name` and `host` are required.
 # manual_services:
