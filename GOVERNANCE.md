@@ -15,6 +15,22 @@ Additional maintainers may be added after a sustained record of good contributio
 
 Day-to-day decisions are made in issues and pull requests. The maintainer decides when there is disagreement, explains the reasoning in the thread and records significant decisions in the changelog or docs. The [roadmap](docs/roadmap.md) states what the project will and will not do.
 
+## Access to sensitive resources
+
+Who can reach what, and through which credential. This is the list of people (one) and automation with access to sensitive resources.
+
+| Resource | Who has access | Through |
+| --- | --- | --- |
+| Repository administration (settings, rulesets, secrets, merging) | the maintainer ([@HoneyBearTech](https://github.com/HoneyBearTech)) | GitHub account owner, with two-factor authentication |
+| Publishing to PyPI | the release workflow, on a version tag pushed by the maintainer | PyPI trusted publishing (short-lived OIDC token, no stored key), `pypi` environment |
+| Publishing images to GHCR | the release workflow, on a version tag | GitHub Actions, short-lived `GITHUB_TOKEN` |
+| Mirroring images to Docker Hub | the Docker Hub workflow, after a successful release | a Docker Hub access token (Read & Write) in a repository secret, which the maintainer creates and rotates |
+| Signing releases | the release workflow, on a version tag | Sigstore keyless signing with the job's GitHub identity; no stored key |
+| Signing Pro license keys | the maintainer | an Ed25519 private key kept offline, never in the repository |
+| Mirroring the repository into the maintainer's self-hosted GitLab | the scheduled mirror job in [`.gitlab-ci.yml`](.gitlab-ci.yml) | a GitLab project access token (Maintainer role, `write_repository` only, with an expiry) in a masked, protected CI/CD variable on that GitLab; the maintainer creates and rotates it |
+| Hosting homelabscribe.com | the maintainer | the Cloudflare account, deployed from `site/` by Cloudflare's Git integration |
+| The OpenSSF Best Practices entry | the maintainer | GitHub sign-in |
+
 ## Access and continuity
 
 This is a single-maintainer project. The maintainer has a documented continuity plan (kept privately by the owner because it covers account recovery and access) for keeping the project going or winding it down in an orderly way if they become unavailable. In addition:

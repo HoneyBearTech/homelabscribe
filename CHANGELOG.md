@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `.gitlab-ci.yml` for the copy of the repository on the maintainer's self-hosted GitLab: a scheduled job mirrors `main` and the tags from GitHub (fast-forward only), and the lint, tests, secret scan and workflow lint re-run on every commit it receives. GitHub stays the home.
+- An access table in GOVERNANCE.md listing who and what can reach each sensitive resource.
 - The image is also on Docker Hub (`honeybeartech/homelabscribe`). A workflow that mirrors each release's container image from GHCR to Docker Hub (same digest, so the release attestation applies to both).
 
 ## [0.2.1] - 2026-10-17

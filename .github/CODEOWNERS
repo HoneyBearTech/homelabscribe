@@ -4,4 +4,5 @@
 /src/homelabscribe/pro/     @HoneyBearTech
 /src/homelabscribe/licensing.py @HoneyBearTech
 /.github/               @HoneyBearTech
+/.gitlab-ci.yml         @HoneyBearTech
 /SECURITY.md            @HoneyBearTech
