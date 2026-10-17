@@ -18,6 +18,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 - Two containers that match the same catalog entry on one host (for example `sonarr` and `sonarr4k`) no longer share one page. The second is titled "Sonarr (sonarr4k)" and gets its own page.
+- The break-glass guide names every DNS server (for example two Pi-holes), not just the first.
 - The break-glass guide no longer mistakes a Pi-hole exporter for the DNS server; only Pi-hole and AdGuard Home images (or a manual entry) count.
 
 ### Security

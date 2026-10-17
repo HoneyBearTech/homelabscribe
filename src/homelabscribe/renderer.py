@@ -236,16 +236,14 @@ class Renderer:
             critical = [s for s in services if s.name.lower() in wanted or s.title.lower() in wanted]
             if not critical:
                 critical = [s for s in services if s.category not in ("Databases", "Infrastructure", "Other")]
-            dns = next((s for s in services if s.is_dns), None) or next(
-                (s for s in services if image_base(s.image) in DNS_IMAGES), None
-            )
+            dns_servers = [s for s in services if s.is_dns or image_base(s.image) in DNS_IMAGES]
             self._write(
                 "break-glass.md",
                 self.env.get_template("breakglass.md.j2").render(
                     **ctx,
                     bg=bg,
                     critical=critical,
-                    dns=dns,
+                    dns_servers=dns_servers,
                     count_on=lambda h: sum(1 for s in services if s.host == h.name),
                 ),
             )
