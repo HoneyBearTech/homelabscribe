@@ -36,8 +36,10 @@ dev = ["pytest>=8", "pytest-cov>=5", "hypothesis>=6", "ruff>=0.5"]
 homelabscribe = "homelabscribe.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/HoneyBearTech/homelabscribe"
+Homepage = "https://homelabscribe.com"
+Source = "https://github.com/HoneyBearTech/homelabscribe"
 Issues = "https://github.com/HoneyBearTech/homelabscribe/issues"
+Changelog = "https://github.com/HoneyBearTech/homelabscribe/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/homelabscribe"]
