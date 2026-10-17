@@ -113,11 +113,15 @@ def test_link_host_is_used_in_service_addresses(tmp_path):
 
     svc = Service(name="sonarr", host="nova", kind="container", ports=[Port(container=8989, host=8989)])
     snap = Snapshot(hosts=[Host(name="nova", kind="docker", link_host="nova.lan")], services=[svc])
+
+    def addresses() -> list[str]:
+        return re.findall(r"http://[^\s|]+", (tmp_path / "index.md").read_text())
+
     Renderer(tmp_path).render(snap)
-    assert "http://nova.lan:8989" in (tmp_path / "index.md").read_text()
+    assert addresses() == ["http://nova.lan:8989"]
     snap.hosts[0].link_host = None
     Renderer(tmp_path).render(snap)
-    assert "http://nova:8989" in (tmp_path / "index.md").read_text()
+    assert addresses() == ["http://nova:8989"]
 
 
 def test_image_default_env_vars_are_hidden(tmp_path):
