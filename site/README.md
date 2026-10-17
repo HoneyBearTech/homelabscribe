@@ -24,3 +24,4 @@ The page starts in pre-launch mode: `<body class="prelaunch">` hides the GitHub,
 - The images in `site/assets/` are copies of the ones in `docs/assets/` (logo, social preview and the three demo screenshots). Update both when they change.
 - The Free vs Pro table mirrors the one in the README.
 - Pricing is intentionally not on the page yet.
+- `.assetsignore` keeps this README out of the published site.
