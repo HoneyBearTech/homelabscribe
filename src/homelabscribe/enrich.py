@@ -77,4 +77,22 @@ def enrich(services: list[Service], catalog: list[dict]) -> list[Service]:
         s.category = lb.get("homelabscribe.category", s.category)
         s.url = lb.get("homelabscribe.url", s.url)
         s.hidden = lb.get("homelabscribe.hidden", "").lower() in ("1", "true", "yes")
+    _disambiguate(services)
     return services
+
+
+def _disambiguate(services: list[Service]) -> None:
+    """Two containers can map to the same catalog name (e.g. sonarr and sonarr4k, both "Sonarr").
+
+    On one host they would share a title, and with it a page. Keep the plain title for the container
+    whose own name matches it and append the container name to the others: "Sonarr (sonarr4k)".
+    """
+    groups: dict[tuple[str, str], list[Service]] = {}
+    for s in services:
+        groups.setdefault((s.host, s.title.lower()), []).append(s)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        for s in group:
+            if s.name.lower() != s.title.lower():
+                s.display_name = f"{s.title} ({s.name})"

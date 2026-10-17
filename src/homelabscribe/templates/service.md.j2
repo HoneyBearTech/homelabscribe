@@ -10,7 +10,7 @@ tags: [homelab, {{ s.category|lower|replace(" ", "-")|replace("(", "")|replace("
 ---
 # {{ s.title }}
 
-> {{ s.description or "No description yet. Add a `homelabscribe.description` label to the container, or write one in the notes below." }}
+> {{ s.description or ("No description yet. Add `description:` to this entry under `manual_services`, or write one in the notes below." if s.kind == "manual" else "No description yet. Add a `homelabscribe.description` label to the container, or write one in the notes below.") }}
 
 | | |
 | --- | --- |
@@ -77,13 +77,15 @@ tags: [homelab, {{ s.category|lower|replace(" ", "-")|replace("(", "")|replace("
 - Used by [{{ u.title }}]({{ page(u) }}.md)
 {% endfor %}
 {% endif %}
-{% if s.env_names %}
+{% set shown_env = s.env_names|config_vars %}
+{% if shown_env %}
 
 ## Configuration variables
 
-Names only; values are never recorded.
+Names only; values are never recorded.{% if shown_env|length < s.env_names|length %} Image defaults such as `PATH` and `S6_*` are left out.{% endif %}
 
-{{ s.env_names|code_list }}
+
+{{ shown_env|code_list }}
 {% endif %}
 
 ## How to restart
@@ -92,6 +94,8 @@ Names only; values are never recorded.
 From the folder with its compose file on **{{ s.host }}**: `docker compose -p {{ s.compose_project }} restart {{ s.compose_service }}`
 {% elif s.kind == "container" %}
 On **{{ s.host }}**: `docker restart {{ s.name }}`
+{% elif s.kind == "manual" %}
+{{ s.restart_hint or "No restart instructions yet. Add `restart:` to this entry under `manual_services` in the config." }}
 {% elif s.kind == "vm" %}
 In the Proxmox web UI, or on node **{{ s.host }}**: `qm reboot {{ s.vmid }}`
 {% else %}

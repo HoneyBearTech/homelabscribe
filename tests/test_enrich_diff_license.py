@@ -91,3 +91,13 @@ def test_expired_and_missing_license_fall_back_to_free():
     assert feats == frozenset() and "expired" in status
     assert licensing.features(None, pub)[0] == frozenset()
     assert licensing.features("garbage", pub)[0] == frozenset()
+
+
+def test_same_catalog_name_on_one_host_gets_distinct_titles():
+    svcs = [
+        Service(name="sonarr", host="h", kind="container", image="lscr.io/linuxserver/sonarr:latest"),
+        Service(name="sonarr4k", host="h", kind="container", image="lscr.io/linuxserver/sonarr:latest"),
+        Service(name="sonarr", host="other", kind="container", image="lscr.io/linuxserver/sonarr:latest"),
+    ]
+    enrich(svcs, load_catalog())
+    assert [s.title for s in svcs] == ["Sonarr", "Sonarr (sonarr4k)", "Sonarr"]

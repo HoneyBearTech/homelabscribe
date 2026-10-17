@@ -15,6 +15,7 @@ _ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 class DockerHostConfig(BaseModel):
     name: str
     url: str = "unix:///var/run/docker.sock"
+    link_host: str | None = None  # hostname or IP used in generated service links; defaults to `name`
 
 
 class ProxmoxConfig(BaseModel):
@@ -33,11 +34,25 @@ class BreakGlassConfig(BaseModel):
     critical: list[str] = Field(default_factory=list)  # service names that matter most
 
 
+class ManualServiceConfig(BaseModel):
+    """Something the scanners can't see (Pi-hole on a Raspberry Pi, a NAS, a router...)."""
+
+    name: str  # unique per host; also used to look up the built-in catalog description
+    host: str  # a scanned host's name, or any new name to add a hand-described machine
+    title: str | None = None
+    description: str | None = None
+    category: str | None = None
+    url: str | None = None
+    restart: str | None = None  # plain-language "how to restart it" for the page and the break-glass guide
+    dns: bool = False  # this is the house's DNS server (Pi-hole and AdGuard Home are detected by name)
+
+
 class Config(BaseModel):
     output_dir: Path = Path("homelabscribe-docs")
     state_dir: Path = Path(".homelabscribe")
     docker_hosts: list[DockerHostConfig] = Field(default_factory=lambda: [DockerHostConfig(name="docker")])
     proxmox: list[ProxmoxConfig] = Field(default_factory=list)
+    manual_services: list[ManualServiceConfig] = Field(default_factory=list)
     catalog_file: Path | None = None  # extra/override catalog entries
     license_key: str | None = None
     breakglass: BreakGlassConfig = Field(default_factory=BreakGlassConfig)
