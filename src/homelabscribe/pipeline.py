@@ -23,6 +23,20 @@ class ScanResult:
     errors: list[str] = field(default_factory=list)
 
 
+def _reason(e: Exception) -> str:
+    """A short, readable cause for an unreadable source (the raw urllib3 text is several lines long)."""
+    text = str(e)
+    for needle, short in (
+        ("Connection refused", "connection refused"),
+        ("timed out", "timed out"),
+        ("No route to host", "no route to host"),
+        ("Name or service not known", "name not found"),
+    ):
+        if needle in text:
+            return short
+    return (text.splitlines() or [type(e).__name__])[0][:120]
+
+
 def _carry_over(previous: Snapshot, collector, snap: Snapshot) -> tuple[list[Host], list[Service]]:
     """The last known hosts and services of a source that just failed, if we can tell which they were."""
     if isinstance(collector, DockerCollector):
@@ -61,7 +75,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         try:
             hosts, services = collector.collect()
         except Exception as e:  # one bad source shouldn't stop the others
-            errors.append(f"{label}: {e}")
+            errors.append(f"{label}: {_reason(e)}")
             if previous:
                 # Keep what we last knew, so one outage doesn't mark the whole host as removed.
                 carried_hosts, carried_services = _carry_over(previous, collector, snap)
