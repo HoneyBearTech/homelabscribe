@@ -60,6 +60,7 @@ class Service(BaseModel):
     restart_policy: str | None = None
     compose_project: str | None = None
     compose_service: str | None = None
+    aliases: list[str] = Field(default_factory=list)  # extra DNS names on its Docker networks
     depends_on: list[str] = Field(default_factory=list)
     # Proxmox guests
     vmid: int | None = None

@@ -124,7 +124,14 @@ def _route_target(
         by_container = target == s.name.lower() and route.forward_port in {p.container for p in s.ports}
         if on_machine or by_container:
             return s
-    return None
+    # A Docker network alias (for example a compose service name or a custom alias) also resolves as a host
+    # name. Aliases repeat across hosts, so only use one when exactly one scanned service answers to it.
+    by_alias = [
+        s
+        for s in services
+        if target in {a.lower() for a in s.aliases} and route.forward_port in {p.container for p in s.ports}
+    ]
+    return by_alias[0] if len(by_alias) == 1 else None
 
 
 def link_routes(routes: list[Route], hosts: list[Host], services: list[Service]) -> None:
@@ -134,8 +141,8 @@ def link_routes(routes: list[Route], hosts: list[Host], services: list[Service])
     service's machine and the port is one it publishes, or when the host is the container's own
     name (Docker networks resolve it) and the port is the container's port. Hand-described services
     have no ports, so they match by the address in their own URL, but only when that address belongs
-    to exactly one of them (several things can share a machine). A URL set by a label, a Traefik
-    rule or the config always wins.
+    to exactly one of them (several things can share a machine). A Docker network alias of a single
+    service also counts as its name. A URL set by a label, a Traefik rule or the config always wins.
     """
     names = {h.name: _host_names(h) for h in hosts}
     manual_by_address: dict[str, list[Service]] = {}

@@ -22,7 +22,7 @@ HomelabScribe recognizes common self-hosted apps by image. Override per containe
 
 ## Web addresses from Nginx Proxy Manager
 
-Docker only knows ports, not the domain names you reach a service by. Configure `npm:` (see `homelabscribe.example.yaml`) and HomelabScribe™ reads the proxy's list of proxy hosts, matches each to a service by machine and port, and uses the domain as that service's address. It also writes `routes.md`, listing every domain and where it goes (unmatched entries are shown as such). A URL set by a label or a Traefik rule always wins. Create an NPM user that can only *view* proxy hosts, and keep its password in an environment variable (`secret: ${NPM_PASSWORD}`).
+Docker only knows ports, not the domain names you reach a service by. Configure `npm:` (see `homelabscribe.example.yaml`) and HomelabScribe™ reads the proxy's list of proxy hosts, matches each to a service by machine and port (or by container name or Docker network alias, when exactly one service answers to it), and uses the domain as that service's address. It also writes `routes.md`, listing every domain and where it goes (unmatched entries are shown as such). A URL set by a label or a Traefik rule always wins. Create an NPM user that can only *view* proxy hosts, and keep its password in an environment variable (`secret: ${NPM_PASSWORD}`).
 
 ## Things the scanners can't see
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from homelabscribe.config import DockerHostConfig
@@ -33,6 +34,21 @@ def parse_depends_on(value: str | None) -> list[str]:
     return sorted({part.split(":", 1)[0] for part in value.split(",") if part})
 
 
+def parse_aliases(networks: dict[str, Any] | None, name: str) -> list[str]:
+    """DNS aliases on a container's networks, minus its own name and the short container id."""
+    found: set[str] = set()
+    for net in (networks or {}).values():
+        for alias in (net or {}).get("Aliases") or []:
+            if (
+                isinstance(alias, str)
+                and alias
+                and alias != name
+                and not re.fullmatch(r"[0-9a-f]{12}", alias)
+            ):
+                found.add(alias)
+    return sorted(found)
+
+
 def parse_container(attrs: dict[str, Any], host: str) -> Service:
     cfg = attrs.get("Config") or {}
     net = attrs.get("NetworkSettings") or {}
@@ -42,8 +58,9 @@ def parse_container(attrs: dict[str, Any], host: str) -> Service:
         # Stopped containers report no live bindings; fall back to what's configured.
         live_ports = {k: None for k in cfg.get("ExposedPorts") or {}}
         live_ports.update((attrs.get("HostConfig") or {}).get("PortBindings") or {})
+    name = (attrs.get("Name") or "").lstrip("/") or attrs.get("Id", "")[:12]
     return Service(
-        name=(attrs.get("Name") or "").lstrip("/") or attrs.get("Id", "")[:12],
+        name=name,
         host=host,
         kind="container",
         status=(attrs.get("State") or {}).get("Status", "unknown"),
@@ -64,6 +81,7 @@ def parse_container(attrs: dict[str, Any], host: str) -> Service:
         restart_policy=((attrs.get("HostConfig") or {}).get("RestartPolicy") or {}).get("Name") or None,
         compose_project=raw_labels.get("com.docker.compose.project"),
         compose_service=raw_labels.get("com.docker.compose.service"),
+        aliases=parse_aliases(net.get("Networks"), name),
         depends_on=parse_depends_on(raw_labels.get("com.docker.compose.depends_on")),
     )
 
