@@ -1,0 +1,40 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Local runs (default output folder is homelabscribe-docs/; docs/ is the project's own documentation)
+homelabscribe-docs/
+.homelabscribe/
+homelabscribe-demo/
+homelabscribe.yaml
+config/
+state/
+
+# NEVER commit your license signing key
+*.pem
+private_key*
+
+# Personal Claude Code notes (lab details, keys)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# macOS
+.DS_Store
+
+# Environment and notes
+.env
+*.key
+.obsidian-docs/
+
+# Test coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# Private planning notes (pricing, approvals, lab details); never commit
+ROADMAP.local.md

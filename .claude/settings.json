@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest *)",
+      "Bash(pytest)",
+      "Bash(ruff *)",
+      "Bash(homelabscribe demo *)",
+      "Bash(homelabscribe version)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)"
+    ],
+    "deny": [
+      "Read(./private_key.pem)",
+      "Read(./*.pem)",
+      "Bash(cat *private_key*)"
+    ]
+  }
+}

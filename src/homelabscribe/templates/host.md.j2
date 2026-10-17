@@ -1,0 +1,39 @@
+---
+title: {{ h.name }}
+kind: {{ h.kind }}
+tags: [homelab, host]
+---
+# {{ h.name }}
+
+| | |
+| --- | --- |
+| Type | {{ "Docker host" if h.kind == "docker" else "Proxmox node" }} |
+{% if h.address %}
+| Address | {{ h.address }} |
+{% endif %}
+{% if h.os %}
+| OS | {{ h.os }} |
+{% endif %}
+{% if h.cpus %}
+| CPUs | {{ h.cpus }} |
+{% endif %}
+{% if h.memory_gb %}
+| Memory | {{ h.memory_gb }} GB |
+{% endif %}
+{% if h.version %}
+| Version | {{ h.version }} |
+{% endif %}
+
+## Running here
+
+| Service | Status | Address | What it does |
+| --- | --- | --- | --- |
+{% for s in on_host %}
+| [{{ s.title }}](../services/{{ page(s) }}.md) | {{ s.status }} | {{ address(s) or "" }} | {{ s.description or "" }} |
+{% endfor %}
+
+## Notes
+
+<!-- homelabscribe:notes:start -->
+_Your notes go here. HomelabScribe never overwrites this section._
+<!-- homelabscribe:notes:end -->

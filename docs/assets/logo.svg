@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title">
+  <title id="title">HomelabScribe logo</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#18304F"/>
+      <stop offset="1" stop-color="#0B1626"/>
+    </linearGradient>
+    <linearGradient id="nib" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC24D"/>
+      <stop offset="1" stop-color="#F09A1A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#tile)"/>
+
+  <!-- Page -->
+  <path d="M164 92 H316 L380 156 V396 a24 24 0 0 1 -24 24 H164 a24 24 0 0 1 -24 -24 V116 a24 24 0 0 1 24 -24 Z" fill="#F5F1E8"/>
+  <path d="M316 92 V136 a20 20 0 0 0 20 20 H380 Z" fill="#D6CDBA"/>
+
+  <!-- Rack units: the part HomelabScribe writes for you -->
+  <g>
+    <rect x="168" y="148" width="184" height="36" rx="9" fill="#18304F"/>
+    <circle cx="189" cy="166" r="6.5" fill="#34D399"/>
+    <rect x="208" y="162" width="56" height="8" rx="4" fill="#3E5A80"/>
+    <rect x="316" y="158" width="5" height="16" rx="2.5" fill="#3E5A80"/>
+    <rect x="328" y="158" width="5" height="16" rx="2.5" fill="#3E5A80"/>
+
+    <rect x="168" y="194" width="184" height="36" rx="9" fill="#18304F"/>
+    <circle cx="189" cy="212" r="6.5" fill="#34D399"/>
+    <rect x="208" y="208" width="80" height="8" rx="4" fill="#3E5A80"/>
+    <rect x="316" y="204" width="5" height="16" rx="2.5" fill="#3E5A80"/>
+    <rect x="328" y="204" width="5" height="16" rx="2.5" fill="#3E5A80"/>
+
+    <rect x="168" y="240" width="184" height="36" rx="9" fill="#18304F"/>
+    <circle cx="189" cy="258" r="6.5" fill="#FFB938"/>
+    <rect x="208" y="254" width="44" height="8" rx="4" fill="#3E5A80"/>
+    <rect x="316" y="250" width="5" height="16" rx="2.5" fill="#3E5A80"/>
+    <rect x="328" y="250" width="5" height="16" rx="2.5" fill="#3E5A80"/>
+  </g>
+
+  <!-- Your notes: the part HomelabScribe never touches -->
+  <path d="M170 324 q11 -12 22 0 t22 0 t22 0 t22 0" fill="none" stroke="#E8900F" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M170 362 q11 -12 22 0 t22 0 t22 0 t22 0" fill="none" stroke="#E8900F" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Nib -->
+  <g transform="translate(262 366) rotate(45) scale(0.92)">
+    <path d="M0 0 L-30 -66 Q-33 -74 -26 -80 V-112 a8 8 0 0 1 8 -8 H18 a8 8 0 0 1 8 8 V-80 Q33 -74 30 -66 Z"
+          fill="url(#nib)" stroke="#0B1626" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M0 -2 V-50" stroke="#0B1626" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="0" cy="-56" r="8" fill="#0B1626"/>
+    <rect x="-26" y="-96" width="52" height="7" fill="#0B1626" opacity="0.35"/>
+  </g>
+</svg>

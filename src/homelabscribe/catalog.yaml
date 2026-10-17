@@ -1,0 +1,48 @@
+# Known apps. `match` is compared with the image's base name (no registry, owner or tag).
+# Add your own in a file referenced by `catalog_file:` in homelabscribe.yaml.
+- {match: [sonarr], name: Sonarr, category: Media, description: "Finds and downloads TV shows automatically."}
+- {match: [radarr], name: Radarr, category: Media, description: "Finds and downloads movies automatically."}
+- {match: [lidarr], name: Lidarr, category: Media, description: "Finds and downloads music automatically."}
+- {match: [readarr], name: Readarr, category: Media, description: "Finds and downloads books automatically."}
+- {match: [prowlarr], name: Prowlarr, category: Media, description: "Manages search indexers for the other download apps."}
+- {match: [bazarr], name: Bazarr, category: Media, description: "Downloads subtitles for movies and shows."}
+- {match: [recyclarr], name: Recyclarr, category: Media, description: "Keeps Sonarr and Radarr quality settings in sync with the TRaSH Guides."}
+- {match: [plex, pms-docker], name: Plex, category: Media, description: "Streams the movie, TV and music library to TVs and phones."}
+- {match: [jellyfin], name: Jellyfin, category: Media, description: "Streams the movie, TV and music library to TVs and phones."}
+- {match: [overseerr, jellyseerr], name: Overseerr, category: Media, description: "Lets family members request movies and shows."}
+- {match: [tautulli], name: Tautulli, category: Media, description: "Shows who is watching what on Plex."}
+- {match: [qbittorrent, qbittorrent-nox], name: qBittorrent, category: Downloads, description: "Downloads files for the media apps."}
+- {match: [sabnzbd], name: SABnzbd, category: Downloads, description: "Downloads files from Usenet for the media apps."}
+- {match: [immich-server, immich], name: Immich, category: Photos, description: "Backs up and organizes family photos and videos."}
+- {match: [photoprism], name: PhotoPrism, category: Photos, description: "Organizes and browses the photo library."}
+- {match: [pihole, pi-hole], name: Pi-hole, category: Network, description: "Blocks ads and answers DNS for the whole house. If it is down, websites may stop loading."}
+- {match: [adguardhome], name: AdGuard Home, category: Network, description: "Blocks ads and answers DNS for the whole house. If it is down, websites may stop loading."}
+- {match: [nginx-proxy-manager], name: Nginx Proxy Manager, category: Network, description: "Routes web addresses to the right app and handles HTTPS certificates."}
+- {match: [traefik], name: Traefik, category: Network, description: "Routes web addresses to the right app and handles HTTPS certificates."}
+- {match: [wireguard, wg-easy], name: WireGuard, category: Network, description: "VPN for reaching the lab from outside the house."}
+- {match: [tailscale], name: Tailscale, category: Network, description: "VPN for reaching the lab from outside the house."}
+- {match: [cloudflared], name: Cloudflare Tunnel, category: Network, description: "Publishes selected apps to the internet without opening ports."}
+- {match: [socket-proxy, docker-socket-proxy], name: Docker Socket Proxy, category: Infrastructure, description: "Gives tools limited, read-only access to Docker."}
+- {match: [portainer-ce, portainer], name: Portainer, category: Infrastructure, description: "Web UI for managing Docker containers."}
+- {match: [watchtower], name: Watchtower, category: Infrastructure, description: "Updates containers to new versions automatically."}
+- {match: [homepage], name: Homepage, category: Dashboards, description: "Start page with links to every app."}
+- {match: [homarr, dashy, heimdall], name: Dashboard, category: Dashboards, description: "Start page with links to every app."}
+- {match: [grafana], name: Grafana, category: Monitoring, description: "Dashboards and graphs for system health."}
+- {match: [prometheus], name: Prometheus, category: Monitoring, description: "Collects metrics from servers and apps."}
+- {match: [node-exporter], name: Node Exporter, category: Monitoring, description: "Reports server CPU, memory and disk metrics to Prometheus."}
+- {match: [cadvisor], name: cAdvisor, category: Monitoring, description: "Reports container resource usage."}
+- {match: [loki], name: Loki, category: Monitoring, description: "Stores logs for searching in Grafana."}
+- {match: [influxdb], name: InfluxDB, category: Monitoring, description: "Time-series database for metrics."}
+- {match: [uptime-kuma], name: Uptime Kuma, category: Monitoring, description: "Checks that apps are up and sends alerts when they are not."}
+- {match: [home-assistant, homeassistant], name: Home Assistant, category: Home, description: "Runs the smart-home devices and automations."}
+- {match: [mosquitto, eclipse-mosquitto], name: Mosquitto, category: Home, description: "Message broker that smart-home devices talk through."}
+- {match: [zigbee2mqtt], name: Zigbee2MQTT, category: Home, description: "Connects Zigbee smart-home devices."}
+- {match: [vaultwarden], name: Vaultwarden, category: Security, description: "Password manager for the household."}
+- {match: [authelia, authentik-server], name: Single sign-on, category: Security, description: "Login page that protects the other apps."}
+- {match: [nextcloud], name: Nextcloud, category: Files, description: "Personal cloud for files, calendars and contacts."}
+- {match: [syncthing], name: Syncthing, category: Files, description: "Keeps folders in sync between devices."}
+- {match: [paperless-ngx], name: Paperless-ngx, category: Files, description: "Scans and organizes household paperwork."}
+- {match: [gitea, forgejo], name: Gitea, category: Development, description: "Self-hosted Git repositories."}
+- {match: [postgres, postgresql], name: PostgreSQL, category: Databases, description: "Database used by another app."}
+- {match: [mariadb, mysql], name: MariaDB, category: Databases, description: "Database used by another app."}
+- {match: [redis, valkey], name: Redis, category: Databases, description: "Cache used by another app."}

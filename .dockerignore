@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+tests
+tools
+docs
+homelabscribe-docs
+.homelabscribe
+homelabscribe-demo
+*.pem

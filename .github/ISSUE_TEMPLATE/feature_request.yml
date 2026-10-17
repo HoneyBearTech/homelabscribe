@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest an improvement or a new app for the catalog
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like HomelabScribe to do?
+  - type: markdown
+    attributes:
+      value: "HomelabScribe stays read-only, makes no network calls beyond the hosts you configure and never stores secret values. See docs/roadmap.md for what it will not do."

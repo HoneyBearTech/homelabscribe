@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    assignees: ["HoneyBearTech"]
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    assignees: ["HoneyBearTech"]
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    assignees: ["HoneyBearTech"]
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    assignees: ["HoneyBearTech"]
+    schedule:
+      interval: "weekly"
+    groups:
+      # init, autobuild, analyze and upload-sarif must share one version: analyze refuses
+      # a configuration written by a different init.
+      codeql-action:
+        patterns: ["github/codeql-action*"]

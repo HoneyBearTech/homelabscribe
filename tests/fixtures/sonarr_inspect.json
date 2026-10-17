@@ -1,0 +1,31 @@
+{
+  "Id": "4f3c2b1a0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b",
+  "Name": "/sonarr",
+  "State": {"Status": "running"},
+  "Config": {
+    "Image": "lscr.io/linuxserver/sonarr:latest",
+    "Env": ["PUID=1000", "PGID=1000", "TZ=America/Chicago", "SONARR__API_KEY=supersecretvalue123"],
+    "Labels": {
+      "com.docker.compose.project": "media",
+      "com.docker.compose.service": "sonarr",
+      "com.docker.compose.depends_on": "prowlarr:service_started:false,qbittorrent:service_started:false",
+      "org.opencontainers.image.version": "4.0.9",
+      "traefik.http.routers.sonarr.rule": "Host(`sonarr.home.example`)",
+      "traefik.http.middlewares.auth.basicauth.users": "admin:$apr1$abc$xyz",
+      "homelabscribe.description": "Grabs new episodes for the family shows."
+    }
+  },
+  "HostConfig": {"RestartPolicy": {"Name": "unless-stopped"}},
+  "NetworkSettings": {
+    "Ports": {
+      "8989/tcp": [{"HostIp": "0.0.0.0", "HostPort": "8989"}, {"HostIp": "::", "HostPort": "8989"}],
+      "9898/tcp": null
+    },
+    "Networks": {"media_default": {}, "proxy": {}}
+  },
+  "Mounts": [
+    {"Type": "bind", "Source": "/mnt/media/tv", "Destination": "/tv", "RW": true},
+    {"Type": "volume", "Name": "sonarr_config", "Source": "/var/lib/docker/volumes/sonarr_config/_data", "Destination": "/config", "RW": true},
+    {"Type": "bind", "Source": "/etc/localtime", "Destination": "/etc/localtime", "RW": false}
+  ]
+}

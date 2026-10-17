@@ -1,0 +1,35 @@
+# HomelabScribe with a read-only Docker socket proxy.
+# Free: run it once (`docker compose run --rm homelabscribe`) from cron.
+# Pro:  uncomment `command` below and run `docker compose up -d` to refresh daily.
+
+services:
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1   # read container details
+      INFO: 1         # read host info
+      NETWORKS: 1
+      POST: 0         # nothing can be changed
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [homelabscribe]
+
+  homelabscribe:
+    image: ghcr.io/honeybeartech/homelabscribe:latest
+    depends_on: [socket-proxy]
+    user: "1000:1000"   # must be able to write to the docs and state folders
+    environment:
+      TZ: America/Chicago
+      # HOMELABSCRIBE_LICENSE: "LS1...."   # Pro key, or set license_key in homelabscribe.yaml
+    volumes:
+      - ./config:/config:ro
+      - ./state:/data/.homelabscribe
+      - /path/to/your/obsidian-vault/Homelab:/docs   # where the docs are written
+    # command: ["run", "--every", "1d"]
+    networks: [homelabscribe]
+    labels:
+      homelabscribe.description: "Writes the documentation you're reading."
+
+networks:
+  homelabscribe: {}

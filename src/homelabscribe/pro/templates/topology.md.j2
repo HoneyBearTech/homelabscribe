@@ -1,0 +1,27 @@
+---
+title: Topology
+tags: [homelab, homelabscribe, diagram]
+---
+# Topology
+
+_Services grouped by the machine they run on. Arrows point from a service to what it depends on._
+
+```mermaid
+flowchart LR
+{% for h in hosts %}
+  subgraph {{ node_id(h.name) }}["{{ h.name }}"]
+{% for s in on_host(h) %}
+    {{ node_id(s.id) }}["{{ s.title|replace('"', "'") }}"]
+{% endfor %}
+  end
+{% endfor %}
+{% for a, b in edges %}
+  {{ node_id(a.id) }} --> {{ node_id(b.id) }}
+{% endfor %}
+```
+
+## Notes
+
+<!-- homelabscribe:notes:start -->
+_Your notes go here. HomelabScribe never overwrites this section._
+<!-- homelabscribe:notes:end -->

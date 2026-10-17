@@ -1,0 +1,62 @@
+---
+title: Break-glass guide
+tags: [homelab, family, emergency]
+---
+# If {{ bg.owner }} isn't available
+
+This page explains the home network in plain language, for whoever needs it. You don't need to be technical. Last updated {{ generated }}.
+
+## First: is it just the internet?
+
+If nothing loads on any device, the problem is most likely the internet provider, not the equipment described here.
+
+1. Unplug the modem and the router. Wait 30 seconds.
+2. Plug the modem back in first. Wait until its lights settle (about 3 minutes).
+3. Plug the router back in. Wait 5 more minutes and try again.
+4. Still down? Call the internet provider.
+{% if dns %}
+
+**If phones and laptops say they're connected but no websites load:** this house uses **{{ dns.title }}** to look up website names, and it runs on the machine **{{ dns.host }}**. Restarting that machine (see below) usually fixes it.
+{% endif %}
+
+## What matters most
+
+{% for s in critical %}
+### {{ s.title }}
+
+{{ s.description or "No plain-language description yet." }}
+
+- Runs on: **{{ s.host }}**
+{% if address(s) %}
+- Open it at: {{ address(s) }}
+{% endif %}
+
+{% endfor %}
+
+## The machines
+
+{% for h in hosts %}
+- **{{ h.name }}** ({{ "Proxmox server" if h.kind == "proxmox-node" else "server" }}) runs {{ count_on(h) }} {{ "thing" if count_on(h) == 1 else "things" }}.
+{% endfor %}
+
+**To restart a machine safely:** press its power button once and let go. Wait for it to turn off by itself; this can take up to 5 minutes. Only hold the button down if it is still on after 10 minutes. Then press the button once more to start it, and give it 10 minutes before checking.
+
+## Who to call
+
+{% if bg.contacts %}
+{% for c in bg.contacts %}
+- {{ c }}
+{% endfor %}
+{% else %}
+_No contacts listed yet. Add them under `breakglass.contacts` in homelabscribe.yaml._
+{% endif %}
+
+## Passwords and accounts
+
+Passwords are deliberately **not** written in this document. Use the notes below to say where they are kept (for example, "the password manager; the emergency kit is in the fire safe").
+
+## Notes from {{ bg.owner }}
+
+<!-- homelabscribe:notes:start -->
+_Your notes go here. HomelabScribe never overwrites this section._
+<!-- homelabscribe:notes:end -->

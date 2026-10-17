@@ -1,0 +1,19 @@
+---
+title: Changelog
+tags: [homelab, homelabscribe, changelog]
+---
+# What changed
+
+_Every scan is compared with the one before it. Newest first._
+
+{% if not entries %}
+No changes recorded yet. Changes appear after the second scan.
+{% endif %}
+{% for e in entries %}
+## {{ e.when }}
+
+{% for c in e.changes %}
+- **{{ c.kind|capitalize }}** {{ c.service }}: {{ c.detail }}
+{% endfor %}
+
+{% endfor %}

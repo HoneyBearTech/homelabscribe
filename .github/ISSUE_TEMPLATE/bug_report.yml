@@ -1,0 +1,30 @@
+name: Bug report
+description: Something is wrong or broken
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Security problem? Do not file it here. See SECURITY.md."
+  - type: input
+    id: version
+    attributes:
+      label: HomelabScribe version and how you run it
+      placeholder: "0.1.0, Docker image / pipx"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `homelabscribe doctor`
+      description: Safe to paste; it contains no secret values. Remove anything you consider private.
+      render: text
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce

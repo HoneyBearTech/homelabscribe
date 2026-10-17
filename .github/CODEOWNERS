@@ -1,0 +1,7 @@
+# Default owner for everything
+*                       @HoneyBearTech
+# Pro code, licensing and release/security automation: always reviewed by the owner
+/src/homelabscribe/pro/     @HoneyBearTech
+/src/homelabscribe/licensing.py @HoneyBearTech
+/.github/               @HoneyBearTech
+/SECURITY.md            @HoneyBearTech

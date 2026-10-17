@@ -1,0 +1,31 @@
+# HomelabScribe configuration. Values like ${NAME} are read from environment variables.
+
+output_dir: /docs          # where Markdown is written (e.g. a folder in your Obsidian vault)
+state_dir: /data/.homelabscribe   # snapshots and changelog history
+
+docker_hosts:
+  - name: nova                       # how this host is named in the docs
+    url: tcp://socket-proxy:2375      # or unix:///var/run/docker.sock
+  # - name: nas                       # more hosts need Pro
+  #   url: tcp://192.168.1.20:2375
+
+# Proxmox (Pro). Use a token with the PVEAuditor role; see README.
+# proxmox:
+#   - name: homelab
+#     host: 192.168.1.10
+#     user: homelabscribe@pve
+#     token_name: docs
+#     token_value: ${PVE_TOKEN}
+#     verify_ssl: false              # self-signed certificate
+
+# Extra or overriding app descriptions (same format as the built-in catalog).
+# catalog_file: /config/catalog.yaml
+
+# license_key: LS1....
+
+# Break-glass guide for family (Pro).
+breakglass:
+  owner: Alex
+  contacts:
+    - "Name — phone — what they can help with"
+  critical: [pihole, plex, homeassistant, vaultwarden]

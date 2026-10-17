@@ -1,0 +1,111 @@
+---
+title: {{ s.title }}
+host: {{ s.host }}
+category: {{ s.category }}
+status: {{ s.status }}
+{% if s.image %}
+image: {{ s.image }}
+{% endif %}
+tags: [homelab, {{ s.category|lower|replace(" ", "-")|replace("(", "")|replace(")", "") }}]
+---
+# {{ s.title }}
+
+> {{ s.description or "No description yet. Add a `homelabscribe.description` label to the container, or write one in the notes below." }}
+
+| | |
+| --- | --- |
+| Runs on | [{{ s.host }}](../hosts/{{ host_slug_by_name(s.host) }}.md) |
+| Status | {{ s.status }} |
+{% if address(s) %}
+| Address | {{ address(s) }} |
+{% endif %}
+{% if s.image %}
+| Image | `{{ s.image }}` |
+{% endif %}
+{% if s.compose_project %}
+| Compose | project `{{ s.compose_project }}`, service `{{ s.compose_service }}` |
+{% endif %}
+{% if s.restart_policy %}
+| Restart policy | {{ s.restart_policy }} |
+{% endif %}
+{% if s.vmid is not none %}
+| Proxmox ID | {{ s.vmid }} ({{ "VM" if s.kind == "vm" else "LXC" }}) |
+{% endif %}
+{% if s.cores %}
+| CPU cores | {{ s.cores }} |
+{% endif %}
+{% if s.memory_gb %}
+| Memory | {{ s.memory_gb }} GB |
+{% endif %}
+{% if s.tags %}
+| Tags | {{ s.tags|join(", ") }} |
+{% endif %}
+{% if s.ports %}
+
+## Ports
+
+| Host port | Container port | Protocol |
+| --- | --- | --- |
+{% for p in s.ports %}
+| {{ p.host if p.host is not none else "internal only" }} | {{ p.container }} | {{ p.protocol }} |
+{% endfor %}
+{% endif %}
+{% if s.mounts %}
+
+## Storage
+
+| Source | Mounted at | Mode |
+| --- | --- | --- |
+{% for m in s.mounts %}
+| `{{ m.source }}` | `{{ m.destination }}` | {{ "read-only" if m.read_only else "read-write" }} |
+{% endfor %}
+{% endif %}
+{% if s.networks %}
+
+## Networks
+
+{{ s.networks|code_list }}
+{% endif %}
+{% if deps(s) or users(s) %}
+
+## Connections
+
+{% for d in deps(s) %}
+- Depends on [{{ d.title }}]({{ page(d) }}.md)
+{% endfor %}
+{% for u in users(s) %}
+- Used by [{{ u.title }}]({{ page(u) }}.md)
+{% endfor %}
+{% endif %}
+{% if s.env_names %}
+
+## Configuration variables
+
+Names only; values are never recorded.
+
+{{ s.env_names|code_list }}
+{% endif %}
+
+## How to restart
+
+{% if s.kind == "container" and s.compose_project %}
+From the folder with its compose file on **{{ s.host }}**: `docker compose -p {{ s.compose_project }} restart {{ s.compose_service }}`
+{% elif s.kind == "container" %}
+On **{{ s.host }}**: `docker restart {{ s.name }}`
+{% elif s.kind == "vm" %}
+In the Proxmox web UI, or on node **{{ s.host }}**: `qm reboot {{ s.vmid }}`
+{% else %}
+In the Proxmox web UI, or on node **{{ s.host }}**: `pct reboot {{ s.vmid }}`
+{% endif %}
+{% if s.notes %}
+
+## Proxmox notes
+
+{{ s.notes }}
+{% endif %}
+
+## Notes
+
+<!-- homelabscribe:notes:start -->
+_Your notes go here. HomelabScribe never overwrites this section._
+<!-- homelabscribe:notes:end -->
