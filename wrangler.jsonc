@@ -3,5 +3,7 @@
   // "name" must match the project name in the Cloudflare dashboard.
   "name": "homelabscribe",
   "compatibility_date": "2026-10-17",
-  "assets": { "directory": "./site" }
+  "assets": { "directory": "./site" },
+  // Pull-request builds run `wrangler preview`, which requires this block (it can be empty).
+  "previews": {}
 }
