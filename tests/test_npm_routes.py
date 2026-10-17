@@ -142,7 +142,8 @@ def test_scan_collects_routes_records_errors_and_never_stores_credentials(tmp_pa
 
     monkeypatch.setattr(NpmCollector, "collect", boom)
     result = pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[])
-    assert result.errors == ["Nginx Proxy Manager 'npm': RuntimeError"] and result.snapshot.routes == []
+    assert result.errors == ["Nginx Proxy Manager 'npm': RuntimeError"]
+    assert len(result.snapshot.routes) == 2  # the last known routes are kept, not dropped
 
 
 def test_routes_page_and_index_link(tmp_path):

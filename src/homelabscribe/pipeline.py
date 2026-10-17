@@ -11,7 +11,7 @@ from homelabscribe.collectors.proxmox import ProxmoxCollector
 from homelabscribe.config import Config
 from homelabscribe.diff import Diff, compare
 from homelabscribe.enrich import enrich, link_routes, load_catalog
-from homelabscribe.models import Snapshot
+from homelabscribe.models import Host, Service, Snapshot
 from homelabscribe.renderer import Renderer
 
 
@@ -21,6 +21,20 @@ class ScanResult:
     diff: Diff | None
     skipped: list[str] = field(default_factory=list)  # sources skipped (license or error)
     errors: list[str] = field(default_factory=list)
+
+
+def _carry_over(previous: Snapshot, collector, snap: Snapshot) -> tuple[list[Host], list[Service]]:
+    """The last known hosts and services of a source that just failed, if we can tell which they were."""
+    if isinstance(collector, DockerCollector):
+        hosts = [h for h in previous.hosts if h.kind == "docker" and h.name == collector.cfg.name]
+    elif isinstance(collector, ProxmoxCollector):
+        hosts = [h for h in previous.hosts if h.kind == "proxmox-node"]
+    else:
+        return [], []
+    present = {h.name for h in snap.hosts}
+    hosts = [h for h in hosts if h.name not in present]
+    names = {h.name for h in hosts}
+    return hosts, [s for s in previous.services if s.host in names]
 
 
 def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
@@ -40,11 +54,19 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         elif cfg.proxmox:
             collectors += [(f"Proxmox '{p.name}'", ProxmoxCollector(p)) for p in cfg.proxmox]
 
+    last = store.recent(cfg.state_dir, 1)
+    previous = last[0] if last else None
+
     for label, collector in collectors:
         try:
             hosts, services = collector.collect()
         except Exception as e:  # one bad source shouldn't stop the others
             errors.append(f"{label}: {e}")
+            if previous:
+                # Keep what we last knew, so one outage doesn't mark the whole host as removed.
+                carried_hosts, carried_services = _carry_over(previous, collector, snap)
+                snap.hosts += carried_hosts
+                snap.services += carried_services
             continue
         snap.hosts += hosts
         snap.services += services
@@ -61,14 +83,15 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
             snap.routes += NpmCollector(proxy).collect()
         except Exception as e:  # a proxy that is down shouldn't stop the scan
             errors.append(f"Nginx Proxy Manager '{proxy.name}': {type(e).__name__}")
+            if previous:
+                snap.routes += [r for r in previous.routes if r.proxy == proxy.name]
     link_routes(snap.routes, snap.hosts, snap.services)
 
-    previous = store.recent(cfg.state_dir, 1)
     store.save(snap, cfg.state_dir)
 
     diff = None
     if previous:
-        diff = compare(previous[0], snap)
+        diff = compare(previous, snap)
         if not diff.empty:
             log = store.load_changelog(cfg.state_dir)
             log.append({"at": snap.taken_at.isoformat(), "changes": [c.model_dump() for c in diff.changes]})

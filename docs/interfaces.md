@@ -16,7 +16,7 @@ HomelabScribe™ has no network API and listens on no port, so there is no OpenA
 | `license` | config | nothing (prints license status) |
 | `version` | nothing | nothing |
 
-Exit status is non-zero on usage errors; per-host collection errors are printed and the run continues with the other hosts.
+Exit status is non-zero on usage errors. A host, Proxmox cluster or proxy that cannot be read is printed as `error:` and the run continues with the others, using the last known data for the one that failed so a short outage never looks like everything was removed. With `--strict` (`scan` and `run`) the command then exits with status 1, which suits schedulers; docs are still written.
 
 ## Configuration file (`homelabscribe.yaml`)
 
