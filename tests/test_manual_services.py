@@ -17,11 +17,11 @@ def test_build_adds_a_host_only_when_it_is_not_already_scanned():
     entries = [
         ManualServiceConfig(name="pihole", host="pi"),
         ManualServiceConfig(name="nas-ui", host="pi"),
-        ManualServiceConfig(name="thing", host="atlas"),
+        ManualServiceConfig(name="thing", host="nova"),
     ]
-    hosts, services = manual.build(entries, {"atlas"})
+    hosts, services = manual.build(entries, {"nova"})
     assert [(h.name, h.kind) for h in hosts] == [("pi", "manual")]
-    assert [s.host for s in services] == ["pi", "pi", "atlas"]
+    assert [s.host for s in services] == ["pi", "pi", "nova"]
     assert all(s.kind == "manual" and s.status == manual.NOT_SCANNED for s in services)
 
 
