@@ -43,6 +43,14 @@ thead th{background:var(--panel2);color:var(--head)} tbody th{font-weight:500}
 td:nth-child(n+2),thead th:nth-child(n+2){text-align:center;width:22%}
 footer{padding:30px 0 56px;border-top:1px solid var(--line);color:var(--muted);font-size:14.5px}
 footer p{margin:8px 0}
+.pro-box{margin-top:26px;background:var(--panel);border:1px solid var(--amber);border-radius:14px;padding:22px 24px;max-width:34em}
+.pro-box h3{font-size:22px;margin:0 0 4px}
+.pro-box .price{margin:0 0 10px} .pro-box .price b{font-size:34px;color:var(--head);letter-spacing:-.5px}
+.pro-box ul{margin:0 0 6px;padding-left:20px} .pro-box li{margin:6px 0}
+.pro-box .cta{margin:16px 0 12px} .small{font-size:14.5px;margin:0}
+/* Sales switch: the buy button stays hidden until <body class="sales">, when "on sale soon" is hidden instead. */
+body:not(.sales) .sales-on{display:none}
+body.sales .sales-off{display:none}
 /* Launch switch: .prelaunch hides what needs the public repo and package; remove the class at launch. */
 body:not(.prelaunch) .prelaunch-only{display:none}
 body.prelaunch .live-only{display:none}
