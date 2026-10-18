@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - Proxmox nodes each show their own address (from the cluster status) instead of the address of the node the API was reached through. Unreadable-source messages are one short line.
 
 ### Added
+- The Pro license terms are stated on the website and in the license email: valid for life, includes future Pro features, no refunds.
 - A Pro box on the website (lifetime license, $2.99) with a buy button that stays hidden until a sales switch is flipped, and a Notifications row in the Free vs Pro table.
 - `license-worker/`: the Cloudflare Worker that sells Pro as a lifetime license. After a paid Lemon Squeezy order it signs a key with the license signing key (a Worker secret) and emails it. Nothing in the app calls it.
 - A Proxmox VM or LXC that is also a scanned Docker host (same name) is linked both ways: the host page says which VM and node it runs as, the VM page links to the host, and the topology diagram connects them.

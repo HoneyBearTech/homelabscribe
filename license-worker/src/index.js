@@ -41,7 +41,7 @@ export async function validSignature(rawBody, signatureHex, secret) {
 
 export function emailText(licenseKey) {
   return [
-    "Thank you for buying HomelabScribe Pro. This license is for life.",
+    "Thank you for buying HomelabScribe Pro. This license is valid for life and includes every Pro feature added in the future.",
     "",
     "Your license key:",
     "",
@@ -55,6 +55,7 @@ export function emailText(licenseKey) {
     "The key works offline; HomelabScribe never contacts a server to check it.",
     "",
     "Keep this email. If you lose the key, reply to it and I will send it again.",
+    "All sales are final; there are no refunds.",
     "Docs: https://homelabscribe.com",
   ].join("\n");
 }
