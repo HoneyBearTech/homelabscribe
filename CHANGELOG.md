@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - Proxmox nodes each show their own address (from the cluster status) instead of the address of the node the API was reached through. Unreadable-source messages are one short line.
 
 ### Added
+- The README and website screenshots are re-rendered from the current release's demo (they said 0.1.0).
 - The Pro license terms are stated on the website and in the license email: valid for life, includes future Pro features, no refunds.
 - A Pro box on the website (lifetime license, $2.99) with a buy button that stays hidden until a sales switch is flipped, and a Notifications row in the Free vs Pro table.
 - `license-worker/`: the Cloudflare Worker that sells Pro as a lifetime license. After a paid Lemon Squeezy order it signs a key with the license signing key (a Worker secret) and emails it. Nothing in the app calls it.
