@@ -45,6 +45,7 @@
 - {match: [syncthing], name: Syncthing, category: Files, description: "Keeps folders in sync between devices."}
 - {match: [paperless-ngx], name: Paperless-ngx, category: Files, description: "Scans and organizes household paperwork."}
 - {match: [gitea, forgejo], name: Gitea, category: Development, description: "Self-hosted Git repositories."}
+- {match: [gitlab-ce, gitlab-ee, gitlab], name: GitLab, category: Development, description: "Self-hosted Git repositories with merge requests and CI pipelines."}
 - {match: [postgres, postgresql], name: PostgreSQL, category: Databases, description: "Database used by another app."}
 - {match: [mariadb, mysql], name: MariaDB, category: Databases, description: "Database used by another app."}
 - {match: [redis, valkey], name: Redis, category: Databases, description: "Cache used by another app."}
