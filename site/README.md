@@ -27,3 +27,7 @@ The site went live on 2026-10-17, together with the public repository and the Py
 - The Free vs Pro table mirrors the one in the README.
 - Pricing is intentionally not on the page yet.
 - `.assetsignore` keeps this README out of the published site.
+
+## Sales switch
+
+The Pro box under "Free vs Pro" shows "Pro goes on sale soon" and hides the buy button. To start selling, put the Lemon Squeezy checkout link in the `href` of `#buy-pro` in `index.html` and add `class="sales"` to `<body>`; the button then shows and the notice hides. The link is a plain navigation, so the page still makes no third-party requests and the content security policy is unchanged.
