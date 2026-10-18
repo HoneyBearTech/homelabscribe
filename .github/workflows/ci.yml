@@ -52,6 +52,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install --require-hashes -r requirements/release.txt && python -m build
+      - name: Build is repeatable (two builds give identical files)
+        run: |
+          python -m build -o /tmp/build-again
+          (cd dist && sha256sum -- *) > /tmp/first.sha256
+          (cd /tmp/build-again && sha256sum -- *) > /tmp/second.sha256
+          diff /tmp/first.sha256 /tmp/second.sha256
       - name: Build the container image (not pushed)
         run: docker build -t homelabscribe:ci .
       - name: Smoke-test the container image
