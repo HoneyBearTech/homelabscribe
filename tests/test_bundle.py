@@ -151,7 +151,9 @@ def test_b1_out_without_bundle_is_a_usage_error(tmp_path, monkeypatch):
     servers = Servers(monkeypatch)
     target = tmp_path / "report.zip"
     result = runner.invoke(app, ["doctor", "-c", str(_config(tmp_path)), "-o", str(target)])
-    assert result.exit_code == 2 and "--bundle" in result.output
+    # A usage error is styled where colour is forced (as on a CI runner), which splits the option's name.
+    message = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert result.exit_code == 2 and "--bundle" in message
     assert not target.exists() and servers.calls == []
 
 
