@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from homelabscribe import manual, store
+from homelabscribe import htmlsite, manual, store
 from homelabscribe.collectors.docker import DockerCollector
 from homelabscribe.collectors.npm import NpmCollector
 from homelabscribe.collectors.proxmox import ProxmoxCollector
@@ -114,11 +115,39 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
     return ScanResult(snapshot=snap, diff=diff, skipped=skipped, errors=errors)
 
 
-def render(cfg: Config, features: frozenset[str], snapshot: Snapshot | None = None):
+@dataclass
+class Rendered:
+    written: list[Path]  # Markdown files that changed
+    html: htmlsite.Export | None = None  # the static HTML copy, when `html_dir` is set
+
+
+def html_dir_problem(cfg: Config) -> str | None:
+    """Why `html_dir` cannot be used (it has to be a folder of its own), or None."""
+    if cfg.html_dir is None:
+        return None
+    others = {"output_dir": cfg.output_dir, "state_dir": cfg.state_dir}
+    return htmlsite.folder_problem(cfg.html_dir, others)
+
+
+def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | None = None) -> Rendered:
+    """Write the Markdown pages and then, when `html_dir` is set, their HTML copy.
+
+    The HTML copy is part of the free core: it does not depend on `features`.
+    """
+    problem = html_dir_problem(cfg)
+    if problem:  # before anything is written
+        raise ValueError(problem)
     if snapshot is None:
         latest = store.recent(cfg.state_dir, 1)
         if not latest:
             raise RuntimeError("No snapshot yet. Run `homelabscribe scan` first.")
         snapshot = latest[0]
     r = Renderer(cfg.output_dir, features)
-    return r.render(snapshot, store.load_changelog(cfg.state_dir), cfg.breakglass)
+    written = r.render(snapshot, store.load_changelog(cfg.state_dir), cfg.breakglass)
+    html = htmlsite.export(cfg.output_dir, cfg.html_dir, r.generated) if cfg.html_dir is not None else None
+    return Rendered(written=written, html=html)
+
+
+def render(cfg: Config, features: frozenset[str], snapshot: Snapshot | None = None):
+    """The Markdown files that changed. Also writes the HTML copy when `html_dir` is set."""
+    return render_pages(cfg, features, snapshot).written
