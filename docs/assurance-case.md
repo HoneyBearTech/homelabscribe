@@ -11,7 +11,7 @@ Claim: HomelabScribe™ can be pointed at a Docker host or Proxmox cluster witho
 | Unauthenticated Docker API exposed | Documented requirement to bind to a trusted LAN address; proxy limits verbs |
 | Malicious or malformed input (labels, config, catalog) | `yaml.safe_load`, Pydantic validation, bundled Jinja2 templates with no user template path |
 | Forged Pro license | Ed25519 signature check; private key never in the repo (`*.pem` ignored) |
-| Compromised dependency or workflow | Dependabot, dependency review, pinned action SHAs, least-privilege tokens, CodeQL, Scorecard |
+| Compromised dependency or workflow | Renovate, dependency review, pinned action SHAs, least-privilege tokens, CodeQL, Scorecard |
 | Tampered release artifact | Keyless cosign signatures, checksums, SBOM, provenance |
 | Loss of user notes | Notes block preserved; pages with notes archived, not deleted |
 
