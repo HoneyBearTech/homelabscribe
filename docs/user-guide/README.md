@@ -39,7 +39,7 @@ Multiple Docker hosts, Proxmox VMs/LXCs, the changelog page, the break-glass gui
 | `homelabscribe run` | Scan, then write docs |
 | `homelabscribe scan` | Take a snapshot only |
 | `homelabscribe render` | Rewrite docs from the latest snapshot |
-| `homelabscribe doctor` | Check config, connections and license; safe to paste into an issue |
+| `homelabscribe doctor` | Check config, connections and license; safe to paste into an issue. With `--bundle` it also writes `homelabscribe-bundle-<UTC time>.zip` (or `-o FILE`): a redacted archive for a bug report, with names, addresses and secrets masked. Read it before you share it ([what it holds](../security.md#the-bug-report-bundle)) |
 | `homelabscribe demo` | Render a sample homelab |
 
 ## Keeping it up to date
