@@ -89,6 +89,7 @@ Screenshots of the built-in demo (a made-up lab), rendered from the Markdown it 
 | Proxmox VMs and LXCs | | Yes |
 | Service, host and overview pages | Yes | Yes |
 | Your notes preserved across runs | Yes | Yes |
+| Static HTML copy | Yes | Yes |
 | Changelog ("what changed this week") | | Yes |
 | Break-glass guide for family | | Yes |
 | Topology diagram | | Yes |
