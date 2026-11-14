@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 from homelabscribe import licensing, notes
 from homelabscribe.collectors.docker import parse_container, parse_depends_on, parse_ports
 from homelabscribe.collectors.proxmox import parse_guest
+from homelabscribe.htmlsite import page_html
 from homelabscribe.redact import clean_labels, env_names
 
 text = st.text(max_size=40)
@@ -107,3 +108,88 @@ def test_notes_merge_keeps_markers_and_notes(body, mine):
 def test_license_verify_rejects_garbage_cleanly(key):
     with pytest.raises(licensing.LicenseError):
         licensing.verify(key)
+
+
+page_pieces = st.sampled_from(
+    [
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        '<a href="javascript:alert(1)" onclick="x">',
+        "<style>*{display:none}</style><base href=//evil.test><meta http-equiv=refresh content=0>",
+        "<iframe src=//evil.test></iframe><object data=x></object><embed src=x><form action=x><link rel=x>",
+        "[a](javascript:alert(1))",
+        "[a](data:text/html;base64,PHNjcmlwdD4=)",
+        "[a](//evil.test/x)",
+        "[a](ftp://evil.test)",
+        "[a](<java\tscript:alert(1)>)",
+        "[a]( vbscript:x )",
+        "[a](http://ok.test/x)",
+        "[a](../services/plex.md#top)",
+        "[a]: javascript:alert(1)\n",
+        "![i](//evil.test/pixel.png)",
+        "![i](https://evil.test/pixel.png)",
+        "![i](data:image/png;base64,AAAA)",
+        "![i](pixel.png 'title')",
+        "<javascript:alert(1)>",
+        "<https://ok.test>",
+        "---\n",
+        "title: ",
+        "<!-- homelabscribe:notes:start -->",
+        "<!-- homelabscribe:notes:end -->",
+        "```mermaid\n",
+        "```\n",
+        "| a | b |\n| :-: | --: |\n| 1 | 2 |\n",
+        "# ",
+        "> ",
+        "\n",
+        "\n\n",
+        "&lt;",
+        "&#x3C;script&#x3E;",
+        "\\",
+        '"',
+        "'",
+        "<",
+        ">",
+        "`",
+        "(",
+        ")",
+        "[",
+        "]",
+        "!",
+    ]
+)
+
+
+@PROFILE
+@given(st.lists(page_pieces | st.text(max_size=20), max_size=12).map("".join))
+def test_html_page_carries_no_markup_from_the_page_text(source):
+    """Whatever a page holds, its HTML copy has no element or address that could run or fetch anything."""
+    from html.parser import HTMLParser
+    from urllib.parse import urlsplit
+
+    def scheme_and_host(address: str) -> tuple[str, str]:
+        plain = address.strip().replace("\\", "/")
+        try:
+            parts = urlsplit(plain)
+            return parts.scheme.lower(), parts.netloc
+        except ValueError:  # such as a host that is cut off: the scheme is still what a browser would see
+            return plain.partition(":")[0].lower(), "?"
+
+    found: list[tuple[str, dict]] = []
+
+    class Elements(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            found.append((tag, dict(attrs)))
+
+    Elements().feed(page_html(source, "services/page.md", frozenset({"services/plex.md", "index.md"})))
+    tags = [tag for tag, _ in found]
+    # The template's own head, then nothing but what the converter makes from Markdown.
+    assert tags[:9] == ["html", "head", "meta", "meta", "meta", "meta", "title", "style", "body"]
+    for tag, attrs in found[9:]:
+        assert tag not in {"script", "style", "iframe", "object", "embed", "form", "base", "meta", "link"}
+        assert not any(name.startswith("on") for name in attrs)
+        if "href" in attrs:
+            scheme, host = scheme_and_host(attrs["href"] or "")
+            assert scheme in ("http", "https", "mailto") or (scheme == "" and host == "")
+        if "src" in attrs:
+            assert scheme_and_host(attrs["src"] or "") == ("", "")

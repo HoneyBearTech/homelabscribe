@@ -33,6 +33,7 @@ TARGETS = {
     "guest": "test_parse_guest_only_fails_with_expected_errors",
     "notes": "test_notes_merge_keeps_markers_and_notes",
     "license": "test_license_verify_rejects_garbage_cleanly",
+    "html_page": "test_html_page_carries_no_markup_from_the_page_text",
 }
 
 
