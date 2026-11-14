@@ -6,24 +6,26 @@ Direct runtime dependencies are listed in [`pyproject.toml`](../pyproject.toml):
 
 ## Obtaining
 
-Dependencies are installed with pip from PyPI by the standard build tooling (`pip install .` / `python -m build`); the Docker image is built from the official `python:3.14-slim` image, pinned by digest in the `Dockerfile` (Dependabot proposes digest updates). There are no vendored copies and no committed binaries.
+Dependencies are installed with pip from PyPI by the standard build tooling (`pip install .` / `python -m build`); the Docker image is built from the official `python:3.14-slim` image, pinned by digest in the `Dockerfile` (Renovate proposes digest updates). There are no vendored copies and no committed binaries.
 
 ## Pinning
 
-Everything CI, the release workflow and the container image install comes from **hash-pinned lockfiles** in [`requirements/`](../requirements): `runtime.txt` (what the image installs), `ci.txt` (runtime plus test and lint tools), `fuzz.txt` (`ci.txt` plus Atheris, for the fuzz workflow) and `release.txt` (build and twine). They are installed with `pip install --require-hashes`, so a changed or tampered package is refused. The container image does not pip-install the project itself (it is pure Python and runs from its source directory with `PYTHONPATH`), so there is no unpinned install step. The base image is pinned by digest and every GitHub Action by commit SHA. The lockfiles are universal (all supported Python versions and platforms) and are regenerated with [uv](https://docs.astral.sh/uv/); the exact command is the first line of each file. For example:
+Everything CI, the release workflow and the container image install comes from **hash-pinned lockfiles** in [`requirements/`](../requirements): `runtime.txt` (what the image installs), `ci.txt` (runtime plus test and lint tools), `fuzz.txt` (`ci.txt` plus Atheris, for the fuzz workflow) and `release.txt` (build and twine). They are installed with `pip install --require-hashes`, so a changed or tampered package is refused. The container image does not pip-install the project itself (it is pure Python and runs from its source directory with `PYTHONPATH`), so there is no unpinned install step. The base image is pinned by digest and every GitHub Action by commit SHA. The lockfiles are universal (all supported Python versions and platforms) and are regenerated with [uv](https://docs.astral.sh/uv/); the exact command is in the header uv writes at the top of each file. For example:
 
 ```bash
-uv pip compile pyproject.toml --extra dev --universal --generate-hashes --python-version 3.11 --no-header -o requirements/ci.txt
+uv pip compile pyproject.toml --extra=dev --universal --generate-hashes --python-version=3.11 --output-file=requirements/ci.txt
 ```
 
-Dependabot proposes updates to the lockfiles weekly, in one grouped pull request.
+Renovate reads that header to find each lockfile's source (`pyproject.toml`, or `requirements/release.in` for `release.txt`) and re-runs the same command to update it, so every pull request it opens carries a complete, freshly resolved lockfile with hashes. For that to work the header has to stay as uv writes it: don't pass `--no-header`, write options that take a value with an equals sign (`--extra=dev`, `--python-version=3.11`) and spell out `--output-file=`. Anything else added to the top of a lockfile is lost the next time it is regenerated.
 
-The images used by the pipeline of the GitLab copy (Python, git, gitleaks, actionlint in [`.gitlab-ci.yml`](../.gitlab-ci.yml)) are pinned by version tag and digest. Dependabot does not read that file, so they are bumped by hand at least every quarter.
+Renovate refreshes all four lockfiles weekly, in one grouped pull request (`lockfile-updates`).
+
+The images used by the pipeline of the GitLab copy (Python, git, gitleaks, actionlint in [`.gitlab-ci.yml`](../.gitlab-ci.yml)) are pinned by version tag and digest. Renovate reads that file and proposes tag and digest updates for them.
 
 ## Tracking
 
 - Versions are declared as minimums in `pyproject.toml`; resolved versions appear in each release's SBOM.
-- **Dependabot** opens weekly update PRs for pip, GitHub Actions and Docker.
+- **Renovate** ([`renovate.json`](../renovate.json)) checks every Monday before 6am (`America/Chicago`) and opens labeled update PRs for the Python dependencies and lockfiles, GitHub Actions, the `Dockerfile` base image, the images in `docker-compose.example.yml` and the images in `.gitlab-ci.yml`. GitHub Actions minor and patch updates arrive as one PR, and the CodeQL actions always move together. A fix for a known vulnerability is opened as soon as it is found, labeled `security`. Nothing is merged automatically.
 - **Dependency review** blocks PRs that add known-vulnerable dependencies.
 - **CodeQL** and the **OpenSSF Scorecard** run on a schedule and on changes.
 

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "America/Chicago",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "assignees": [
+    "HoneyBearTech"
+  ],
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security"
+    ]
+  },
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^requirements\\/(ci|fuzz|release|runtime)\\.txt$/"
+    ],
+    "lockFileMaintenance": {
+      "enabled": true,
+      "schedule": [
+        "before 6am on monday"
+      ]
+    }
+  },
+  "pep621": {
+    "managerFilePatterns": [
+      "/^pyproject\\.toml$/"
+    ]
+  },
+  "poetry": {
+    "enabled": false
+  },
+  "dockerfile": {
+    "managerFilePatterns": [
+      "/^Dockerfile$/"
+    ]
+  },
+  "docker-compose": {
+    "managerFilePatterns": [
+      "/^docker-compose\\.example\\.ya?ml$/"
+    ]
+  },
+  "github-actions": {
+    "managerFilePatterns": [
+      "/^\\.github\\/workflows\\/.*\\.ya?ml$/"
+    ]
+  },
+  "gitlabci": {
+    "managerFilePatterns": [
+      "/^\\.gitlab-ci\\.yml$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "GitHub Actions minor and patch updates"
+    },
+    {
+      "description": "init, autobuild, analyze and upload-sarif must share one version: analyze refuses a configuration written by a different init.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "github/codeql-action",
+        "github/codeql-action/**"
+      ],
+      "groupName": "codeql-action"
+    },
+    {
+      "description": "The hash-pinned lockfiles in requirements/ move together, in one pull request.",
+      "matchManagers": [
+        "pip-compile"
+      ],
+      "groupName": "lockfile-updates"
+    }
+  ]
+}

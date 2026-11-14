@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Dependency updates are proposed by Renovate (`renovate.json`) instead of Dependabot. It regenerates the hash-pinned lockfiles in `requirements/` with the uv command in each file's header, and also covers the images in `.gitlab-ci.yml`, which used to be bumped by hand.
+
 ### Fixed
 - Proxmox nodes each show their own address (from the cluster status) instead of the address of the node the API was reached through. Unreadable-source messages are one short line.
 

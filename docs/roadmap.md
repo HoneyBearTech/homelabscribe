@@ -19,7 +19,7 @@ Plans for roughly the next twelve months. Dates are intentions, not promises; th
 ## Security and project health
 - Keep Baseline and Best Practices badges (Passing, Silver) current
 - Extend the property-based (fuzz) tests as new parsers are added
-- Keep the container base image pinned by digest (Dependabot updates it)
+- Keep the container base image pinned by digest (Renovate updates it)
 - Reproducible release builds where practical
 
 ## What HomelabScribe™ will not do
