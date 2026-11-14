@@ -72,10 +72,11 @@ Pipeline: **collectors → enrichment → snapshot (JSON) → diff → renderers
 - Fuzzing: `fuzz/fuzz_properties.py` runs the Hypothesis properties of `tests/test_fuzz_parsers.py` under Atheris (Linux
   x86_64 only; `.github/workflows/fuzz.yml`, deps in `requirements/fuzz.txt`). A new parser gets a property and a target.
 - GitLab copy: the owner's self-hosted GitLab (CE, LAN only; details in Chronos) holds a mirror. GitHub stays
-  the home (OpenSSF badges, Scorecard, Dependabot, releases, Sigstore signing); every change goes to GitHub
+  the home (OpenSSF badges, Scorecard, Renovate, releases, Sigstore signing); every change goes to GitHub
   as a PR, never to GitLab. `.gitlab-ci.yml` mirrors GitHub on a schedule (fast-forward only, `MIRROR_TOKEN`
   CI/CD variable) and re-runs the daemon-free checks (`checks`, `gitleaks`, `actionlint`). Its images are
-  pinned by tag and digest and bumped by hand; no host names of the GitLab go in this repository.
+  pinned by tag and digest, and Renovate proposes their updates; no host names of the GitLab go in this
+  repository.
 
 ## Context
 
