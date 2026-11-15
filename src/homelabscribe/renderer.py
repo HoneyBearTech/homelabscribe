@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import errno
+import itertools
+import os
 import re
-import shutil
 import unicodedata
 from collections import defaultdict
 from datetime import datetime
@@ -135,6 +138,100 @@ def _when(dt: datetime) -> str:
     return f"{local:%B} {local.day}, {local:%Y at %H:%M %Z}".strip()
 
 
+# Create the file itself, never what a link in its place points at (and as bytes, where that is a choice).
+_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+
+# What a file system that cannot sync a file at all answers: the copy is then as safe as it allows.
+_NO_SYNC = frozenset({errno.EINVAL, errno.ENOTSUP, errno.ENOSYS})
+
+
+def _fill(fd: int, data: bytes) -> None:
+    """Write all of `data` to the new file open at `fd`, flush it to disk where that is possible, close it."""
+    try:
+        f = os.fdopen(fd, "wb")
+    except BaseException:
+        os.close(fd)
+        raise
+    with f:
+        f.write(data)
+        f.flush()
+        try:
+            os.fsync(f.fileno())  # on disk before the page is removed, so a crash cannot leave a short copy
+        except OSError as e:
+            if e.errno not in _NO_SYNC:
+                raise
+
+
+def _version(st: os.stat_result) -> tuple[int, int, int, int]:
+    """Which file, and which version of it: its device, inode, size and modification time."""
+    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
+
+
+def _still(path: Path, read: os.stat_result) -> bool:
+    """True when `path` still is the file, in the version, that `read` describes."""
+    try:
+        return _version(os.stat(path)) == _version(read)
+    except FileNotFoundError:
+        return False
+
+
+def _remove_own(path: Path, made: os.stat_result) -> None:
+    """Remove `path` if it still holds the file that was created there (same device and inode), else nothing.
+
+    The name is checked just before it is removed: a file that takes the name in the instant between that
+    check and the removal is not protected.
+    """
+    try:
+        now = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if (now.st_dev, now.st_ino) == (made.st_dev, made.st_ino):
+        path.unlink()
+
+
+def _archive(page: Path, folder: Path) -> Path | None:
+    """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy.
+
+    The first name tried is the page's own (`plex.md`), then `plex-2.md`, `plex-3.md` and so on. A name is
+    taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
+    each name is taken by creating a new file in one step, which fails if the name exists. The copy holds
+    the page's bytes and is created with the page's permissions (the umask may narrow them). The page is
+    removed only once its copy is complete and on disk, and only if it is still the file that was read,
+    unchanged. If it was saved again in the meantime, the copy is removed and None is returned: the page
+    stays for the next run. If anything fails, the error is raised, the page stays where it was and the
+    copy is removed. Just before a copy is removed, its name is checked to still hold the file this call
+    created; a file that takes the name in the instant between that check and the removal is not protected.
+    A page that is a link is copied as the text it points to, and then only the link is removed.
+    """
+    with page.open("rb") as source:
+        read = os.fstat(source.fileno())
+        data = source.read()
+    base = page.name.removesuffix(".md")
+    for n in itertools.count(1):
+        dest = folder / (page.name if n == 1 else f"{base}-{n}.md")
+        try:
+            fd = os.open(dest, _NEW_FILE, read.st_mode & 0o777)  # never wider than the page
+        except FileExistsError:
+            continue
+        break
+    try:
+        made = os.fstat(fd)
+    except BaseException:
+        os.close(fd)
+        raise
+    try:
+        _fill(fd, data)
+        if not _still(page, read):  # saved again while it was copied: the copy would hold older text
+            _remove_own(dest, made)
+            return None
+        page.unlink()
+    except BaseException:
+        with contextlib.suppress(OSError):  # the file this call created: never one that was there before
+            _remove_own(dest, made)
+        raise
+    return dest
+
+
 class Renderer:
     def __init__(
         self, output_dir: Path, features: frozenset[str] = frozenset(), template_dir: Path | None = None
@@ -236,9 +333,10 @@ class Renderer:
                 continue
             kept = notes.extract(f.read_text())
             if kept and kept.strip() != notes.PLACEHOLDER:
-                dest = self.out / "archive" / folder / f.name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(f, dest)
+                dest = self.out / "archive" / folder
+                dest.mkdir(parents=True, exist_ok=True)
+                if _archive(f, dest) is None:  # saved while it was copied: left as it is, for the next run
+                    continue
             else:
                 f.unlink()
             self.written.append(f)

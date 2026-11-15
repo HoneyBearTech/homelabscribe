@@ -1,9 +1,16 @@
+import errno
+import os
 import re
+import stat
+from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from homelabscribe import licensing, notes, pipeline
+from homelabscribe import renderer as renderer_module
 from homelabscribe.config import Config, DockerHostConfig, ProxmoxConfig
 from homelabscribe.demo import demo_snapshots
 from homelabscribe.enrich import enrich, load_catalog
@@ -61,6 +68,304 @@ def test_removed_service_with_notes_is_archived(tmp_path):
     assert not page.exists()
     assert (tmp_path / "archive" / "services" / "plex.md").exists()
     assert not (tmp_path / "services" / "prowlarr.md").exists()  # no notes: deleted
+
+
+# ---- archiving: a page already in `archive/` is never overwritten ------------------------------
+
+
+def _with_notes(page, text):
+    page.write_text(page.read_text().replace(notes.PLACEHOLDER, text))
+
+
+def _archive_page(out, snap, folder, name, text):
+    """Render the lab (the page comes back with an empty notes block), give the page notes, remove it."""
+    Renderer(out).render(snap)
+    _with_notes(out / folder / f"{name}.md", text)
+    gone = snap.model_copy(deep=True)
+    if folder == "services":
+        gone.services = [s for s in gone.services if s.name != name]
+    else:
+        gone.hosts = [h for h in gone.hosts if h.name != name]
+    Renderer(out).render(gone)
+    assert not (out / folder / f"{name}.md").exists()
+
+
+@pytest.mark.parametrize(("folder", "name"), [("services", "plex"), ("hosts", "pve1")])
+def test_a_page_archived_again_does_not_replace_the_first(tmp_path, folder, name):
+    snap = _snap()
+    archive = tmp_path / "archive" / folder
+    _archive_page(tmp_path, snap, folder, name, "First notes.")
+    first = (archive / f"{name}.md").read_bytes()
+    _archive_page(tmp_path, snap, folder, name, "Second notes.")
+    _archive_page(tmp_path, snap, folder, name, "Third notes.")
+    assert (archive / f"{name}.md").read_bytes() == first
+    assert "First notes." in first.decode()
+    assert "Second notes." in (archive / f"{name}-2.md").read_text()
+    assert "Third notes." in (archive / f"{name}-3.md").read_text()
+    assert sorted(p.name for p in archive.iterdir()) == [f"{name}-2.md", f"{name}-3.md", f"{name}.md"]
+
+
+def test_a_name_taken_by_hand_is_skipped(tmp_path):
+    archive = tmp_path / "archive" / "services"
+    archive.mkdir(parents=True)
+    (archive / "plex.md").write_bytes(b"archived before\n")
+    (archive / "plex-2.md").write_bytes(b"put here by hand\n")
+    _archive_page(tmp_path, _snap(), "services", "plex", "Plex pass renews in May.")
+    assert (archive / "plex.md").read_bytes() == b"archived before\n"
+    assert (archive / "plex-2.md").read_bytes() == b"put here by hand\n"
+    assert "Plex pass renews in May." in (archive / "plex-3.md").read_text()
+
+
+def test_a_folder_at_the_name_is_left_alone(tmp_path):
+    snap = _snap()
+    archive = tmp_path / "archive" / "services"
+    (archive / "plex.md").mkdir(parents=True)
+    _archive_page(tmp_path, snap, "services", "plex", "First notes.")
+    assert (archive / "plex.md").is_dir() and not list((archive / "plex.md").iterdir())
+    assert "First notes." in (archive / "plex-2.md").read_text()
+    _archive_page(tmp_path, snap, "services", "plex", "Second notes.")
+    assert (archive / "plex.md").is_dir() and not list((archive / "plex.md").iterdir())
+    assert "Second notes." in (archive / "plex-3.md").read_text()
+
+
+def _outside(tmp_path, out):
+    return {
+        (p.relative_to(tmp_path).as_posix(), p.read_bytes() if p.is_file() and not p.is_symlink() else None)
+        for p in tmp_path.rglob("*")
+        if not p.is_relative_to(out)
+    }
+
+
+@pytest.mark.parametrize("kind", ["folder", "file", "nowhere"])
+def test_a_link_at_the_name_is_left_alone(tmp_path, kind):
+    out = tmp_path / "docs"
+    target = tmp_path / "elsewhere"
+    if kind == "folder":
+        target.mkdir()
+    elif kind == "file":
+        target.write_bytes(b"someone else's file\n")
+    archive = out / "archive" / "services"
+    archive.mkdir(parents=True)
+    (archive / "plex.md").symlink_to(target, target_is_directory=kind == "folder")
+    before = _outside(tmp_path, out)
+    _archive_page(out, _snap(), "services", "plex", "Plex pass renews in May.")
+    assert (archive / "plex.md").is_symlink() and os.readlink(archive / "plex.md") == str(target)
+    assert _outside(tmp_path, out) == before  # the target is unchanged and nothing new is outside `docs`
+    if kind == "folder":
+        assert not list(target.iterdir())
+    elif kind == "file":
+        assert target.read_bytes() == b"someone else's file\n"
+    else:
+        assert not target.exists() and not target.is_symlink()
+    copy = archive / "plex-2.md"
+    assert not copy.is_symlink() and "Plex pass renews in May." in copy.read_text()
+
+
+def test_the_archived_page_keeps_its_bytes(tmp_path):
+    snap = _snap()
+    Renderer(tmp_path).render(snap)
+    page = tmp_path / "services" / "plex.md"
+    text = page.read_text().replace(notes.PLACEHOLDER, "Café, Ærø, 日本語 — ✓\nSecond line.")
+    data = text.replace("\n", "\r\n").encode("utf-8")
+    page.write_bytes(data)
+    snap.services = [s for s in snap.services if s.name != "plex"]
+    Renderer(tmp_path).render(snap)
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == data
+
+
+def test_a_page_that_is_a_link_is_archived_as_a_copy_and_its_target_is_kept(tmp_path):
+    out, mine = tmp_path / "docs", tmp_path / "mine.md"
+    snap = _snap()
+    Renderer(out).render(snap)
+    page = out / "services" / "plex.md"
+    mine.write_bytes(page.read_text().replace(notes.PLACEHOLDER, "Plex pass renews in May.").encode())
+    data = mine.read_bytes()
+    page.unlink()
+    page.symlink_to(mine)
+    snap.services = [s for s in snap.services if s.name != "plex"]
+    Renderer(out).render(snap)
+    assert mine.read_bytes() == data  # the file the link pointed to is unchanged
+    copy = out / "archive" / "services" / "plex.md"
+    assert not copy.is_symlink() and copy.read_bytes() == data
+    assert not page.exists() and not page.is_symlink()  # only the link itself is removed
+
+
+def _ready_to_archive(out):
+    """The lab rendered, the Plex page given notes; returns the lab without Plex and the page's bytes."""
+    snap = _snap()
+    Renderer(out).render(snap)
+    page = out / "services" / "plex.md"
+    _with_notes(page, "Plex pass renews in May.")
+    snap.services = [s for s in snap.services if s.name != "plex"]
+    return snap, page.read_bytes()
+
+
+def test_a_failed_archiving_keeps_the_page_and_leaves_no_partial_file(tmp_path, monkeypatch):
+    snap, data = _ready_to_archive(tmp_path)
+    real_fill = renderer_module._fill
+
+    def fill_part_way(fd, data):
+        real_fill(fd, data[: len(data) // 2])
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(renderer_module, "_fill", fill_part_way)
+    with pytest.raises(OSError, match="No space left"):
+        Renderer(tmp_path).render(snap)
+    assert (tmp_path / "services" / "plex.md").read_bytes() == data
+    assert not list((tmp_path / "archive" / "services").iterdir())
+
+
+def test_the_copy_is_on_disk_before_the_page_is_removed(tmp_path, monkeypatch):
+    snap, _ = _ready_to_archive(tmp_path)
+    events = []
+    real_fsync, real_unlink = os.fsync, Path.unlink
+
+    def fsync(fd):
+        events.append(("fsync", os.fstat(fd).st_ino))
+        real_fsync(fd)
+
+    def unlink(path, missing_ok=False):
+        events.append(("unlink", path))
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    Renderer(tmp_path).render(snap)
+    copy = (tmp_path / "archive" / "services" / "plex.md").stat().st_ino
+    assert events.index(("fsync", copy)) < events.index(("unlink", tmp_path / "services" / "plex.md"))
+
+
+def test_a_failed_flush_to_disk_keeps_the_page_and_leaves_no_file(tmp_path, monkeypatch):
+    snap, data = _ready_to_archive(tmp_path)
+
+    def fsync(fd):
+        raise OSError(
+            errno.EIO, "Input/output error"
+        )  # a real failure, unlike a file system that cannot sync
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    with pytest.raises(OSError, match="Input/output error"):
+        Renderer(tmp_path).render(snap)
+    assert (tmp_path / "services" / "plex.md").read_bytes() == data
+    assert not list((tmp_path / "archive" / "services").iterdir())
+
+
+def test_a_file_system_that_cannot_sync_still_archives(tmp_path, monkeypatch):
+    snap, data = _ready_to_archive(tmp_path)
+
+    def fsync(fd):
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    Renderer(tmp_path).render(snap)
+    assert not (tmp_path / "services" / "plex.md").exists()
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == data
+
+
+def test_a_page_saved_while_it_is_copied_is_kept_for_the_next_run(tmp_path, monkeypatch):
+    snap, _ = _ready_to_archive(tmp_path)
+    page = tmp_path / "services" / "plex.md"
+    newer = page.read_text().replace("Plex pass renews in May.", "Plex pass renews in June, after the move.")
+    real_fill = renderer_module._fill
+
+    def fill_then_save_the_page(fd, data):
+        real_fill(fd, data)
+        page.write_text(newer)  # the user (or a sync tool) saves the page while it is being archived
+
+    monkeypatch.setattr(renderer_module, "_fill", fill_then_save_the_page)
+    renderer = Renderer(tmp_path)
+    renderer.render(snap)
+    assert page.read_text() == newer
+    assert not list((tmp_path / "archive" / "services").iterdir())
+    assert page not in renderer.written
+    monkeypatch.undo()
+    Renderer(tmp_path).render(snap)
+    assert not page.exists()
+    assert (tmp_path / "archive" / "services" / "plex.md").read_text() == newer
+
+
+def test_the_clean_up_never_removes_a_file_that_took_the_copys_place(tmp_path, monkeypatch):
+    snap, data = _ready_to_archive(tmp_path)
+    name = tmp_path / "archive" / "services" / "plex.md"
+
+    def swap_then_fail(fd, data):
+        name.unlink()  # while the copy is still open, so the other file cannot get its inode number
+        name.write_bytes(b"someone else's file\n")  # another file takes the name before the clean-up
+        os.close(fd)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(renderer_module, "_fill", swap_then_fail)
+    with pytest.raises(OSError, match="No space left"):
+        Renderer(tmp_path).render(snap)
+    assert name.read_bytes() == b"someone else's file\n"
+    assert (tmp_path / "services" / "plex.md").read_bytes() == data
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="root can write to a read-only folder")
+@pytest.mark.parametrize("read_only", ["archive/services", "services"])
+def test_a_read_only_folder_keeps_the_page_and_leaves_no_file(tmp_path, read_only):
+    snap, data = _ready_to_archive(tmp_path)
+    (tmp_path / "archive" / "services").mkdir(parents=True)
+    (tmp_path / read_only).chmod(0o555)
+    try:
+        with pytest.raises(PermissionError):
+            Renderer(tmp_path).render(snap)
+    finally:
+        (tmp_path / read_only).chmod(0o755)
+    assert (tmp_path / "services" / "plex.md").read_bytes() == data
+    assert not list((tmp_path / "archive" / "services").iterdir())
+
+
+def test_the_archived_copy_is_never_more_readable_than_the_page(tmp_path):
+    snap = _snap()
+    Renderer(tmp_path).render(snap)
+    for name, text in (("plex", "Private notes."), ("sonarr", "Shared notes.")):
+        _with_notes(tmp_path / "services" / f"{name}.md", text)
+    (tmp_path / "services" / "plex.md").chmod(0o600)
+    (tmp_path / "services" / "sonarr.md").chmod(0o644)
+    snap.services = [s for s in snap.services if s.name not in ("plex", "sonarr")]
+    old = os.umask(0o022)
+    try:
+        Renderer(tmp_path).render(snap)
+    finally:
+        os.umask(old)
+    archive = tmp_path / "archive" / "services"
+    assert stat.S_IMODE((archive / "plex.md").stat().st_mode) == 0o600
+    assert stat.S_IMODE((archive / "sonarr.md").stat().st_mode) == 0o644
+
+
+_ARCHIVED = ["plex.md", "plex-2.md", "plex-3.md", "nova.md", "nova-2.md"]
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    st.dictionaries(st.sampled_from(_ARCHIVED), st.binary(max_size=24), max_size=4),
+    st.lists(
+        st.tuples(
+            st.sampled_from(["plex", "plex-2", "nova"]),
+            st.text(st.characters(categories=["L", "N"]), min_size=1, max_size=12),
+        ),
+        min_size=1,
+        max_size=5,
+    ),
+)
+def test_archiving_never_changes_a_file_already_in_the_archive(tmp_path_factory, there, steps):
+    out = tmp_path_factory.mktemp("lab")
+    archive = out / "archive" / "services"
+    archive.mkdir(parents=True)
+    for name, data in there.items():
+        (archive / name).write_bytes(data)
+    (out / "services").mkdir()
+    for name, text in steps:
+        before = {p.name: p.read_bytes() for p in archive.iterdir()}
+        data = f"# {name}\n\n{notes.START}\n{text}\n{notes.END}\n".encode()
+        (out / "services" / f"{name}.md").write_bytes(data)
+        Renderer(out).render(Snapshot())
+        after = {p.name: p.read_bytes() for p in archive.iterdir()}
+        assert not (out / "services" / f"{name}.md").exists()
+        assert {n: after.get(n) for n in before} == before
+        new = set(after) - set(before)
+        assert len(new) == 1 and after[new.pop()] == data
 
 
 class FakeCollector:

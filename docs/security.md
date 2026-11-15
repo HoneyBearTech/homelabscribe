@@ -9,7 +9,7 @@ What HomelabScribe™ is designed to guarantee, and what it is not.
 3. **No phone-home.** No telemetry, update checks or license calls. Licenses verify offline against an embedded public key. The one exception is a notification (Pro) you turn on yourself: it posts a short summary of changes to the ntfy or Discord address in your own config, and nowhere else.
 4. **Least privilege.** Docker access through a socket proxy with `POST=0`; Proxmox access with the `PVEAuditor` role only. The container runs as a non-root user.
 5. **Safe parsing.** YAML is loaded with `safe_load`; templates are bundled, not user-supplied.
-6. **Your notes are never destroyed.** Removed pages that hold notes are archived.
+6. **Your notes are never destroyed.** Removed pages that hold notes are archived, and a page in the archive is never overwritten.
 7. **Verifiable releases.** Releases are signed (Sigstore), with checksums, an SBOM and provenance ([verifying releases](verifying-releases.md)).
 
 ## What HomelabScribe does not protect

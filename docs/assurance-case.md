@@ -13,7 +13,7 @@ Claim: HomelabScribe™ can be pointed at a Docker host or Proxmox cluster witho
 | Forged Pro license | Ed25519 signature check; private key never in the repo (`*.pem` ignored) |
 | Compromised dependency or workflow | Renovate, dependency review, pinned action SHAs, least-privilege tokens, CodeQL, Scorecard |
 | Tampered release artifact | Keyless cosign signatures, checksums, SBOM, provenance |
-| Loss of user notes | Notes block preserved; pages with notes archived, not deleted |
+| Loss of user notes | Notes block preserved; pages with notes archived, not deleted; nothing in the archive is overwritten |
 
 ## Trust boundaries
 

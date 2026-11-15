@@ -254,6 +254,23 @@ def test_h3_the_renderers_pages_and_archived_pages_are_exported_and_nothing_else
     assert not (html / "todo.html").exists() and not (html / "extra").exists()
 
 
+def test_h3_a_page_archived_twice_is_exported_twice_with_its_own_notes(tmp_path):
+    out, html = tmp_path / "docs", tmp_path / "html"
+    lab = _lab()
+    without = lab.model_copy(deep=True)
+    without.services = [s for s in without.services if s.name != "plex"]
+    plex = out / "services" / "plex.md"
+    for text in ("First notes.", "Second notes."):
+        _render(out, lab)  # Plex comes back with an empty notes block
+        plex.write_text(plex.read_text().replace(notes.PLACEHOLDER, text))
+        renderer = _render(out, without)
+    htmlsite.export(out, html, renderer.generated)
+    first = (html / "archive" / "services" / "plex.html").read_text()
+    second = (html / "archive" / "services" / "plex-2.html").read_text()
+    assert "First notes." in first and "Second notes." not in first
+    assert "Second notes." in second and "First notes." not in second
+
+
 # ---- H4: notes --------------------------------------------------------------------------------
 
 
