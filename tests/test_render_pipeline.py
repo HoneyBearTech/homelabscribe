@@ -786,3 +786,145 @@ def test_slug_is_a_short_safe_page_name(text):
     assert slug(text) == s
     if len(_old_slug(text)) <= 200:
         assert s == _old_slug(text)
+
+
+# ---- text that no file can hold (a lone surrogate) never stops a scan or a render -----------------
+
+BAD = "bad\ud800text"
+_TEXT_TYPES = (str, str | None, list[str], dict[str, str])
+
+
+def _all_text(model_cls, **given):
+    """A model with every text field (str, list of str, dict of str) holding a lone surrogate."""
+    values = {}
+    for name, field in model_cls.model_fields.items():
+        if field.annotation in (str, str | None):
+            values[name] = f"{name}-{BAD}"
+        elif field.annotation == list[str]:
+            values[name] = [f"{name}-{BAD}"]
+        elif field.annotation == dict[str, str]:
+            values[name] = {f"{name}-key-{BAD}": f"{name}-{BAD}"}
+    return model_cls(**{**values, **given})
+
+
+def _surrogate_lab() -> tuple[list[Host], list[Service], list]:
+    from homelabscribe.models import Mount, Port, Route
+
+    host = _all_text(Host, kind="docker")
+    web = _all_text(
+        Service,
+        host=host.name,
+        kind="container",
+        ports=[_all_text(Port, container=80, host=8080)],
+        mounts=[_all_text(Mount)],
+        vmid=None,
+    )
+    # The VM that is the Docker host.
+    guest = _all_text(Service, name=host.name, host=host.name, kind="vm", display_name=f"VM {BAD}")
+    route = _all_text(Route, forward_host=host.name, forward_port=8080)
+    return [host], [web, guest], [route]
+
+
+def _texts(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [t for v in value for t in _texts(v)]
+    if isinstance(value, dict):
+        return [t for k, v in value.items() for t in [*_texts(k), *_texts(v)]]
+    return []
+
+
+_EXPECTED_FIELDS = {
+    Host: {"name", "address", "link_host", "os", "version"},
+    Service: {"name", "host", "status", "image", "networks", "env_names", "labels", "restart_policy"}
+    | {"compose_project", "compose_service", "aliases", "depends_on", "tags", "notes", "restart_hint"}
+    | {"display_name", "description", "category", "url"},
+}  # `guest_of` and `runs_host` are set by the scan: the name and id of the Docker host and its VM
+
+
+def test_lone_surrogates_in_every_text_of_a_scan_are_saved_compared_and_rendered(tmp_path, monkeypatch):
+    from homelabscribe import store
+    from homelabscribe.collectors.npm import NpmCollector
+    from homelabscribe.config import NpmConfig
+
+    hosts, services, routes = _surrogate_lab()
+    for model, fields in _EXPECTED_FIELDS.items():  # the lab really reaches these fields
+        assert fields <= {n for n, f in model.model_fields.items() if f.annotation in _TEXT_TYPES}
+    monkeypatch.setattr(NpmCollector, "collect", lambda self: [r.model_copy(deep=True) for r in routes])
+    cfg = Config(
+        output_dir=tmp_path / "docs",
+        state_dir=tmp_path / "state",
+        npm=[NpmConfig(name=routes[0].proxy, url="http://npm.example.test:81", identity="i", secret="s")],
+    )
+    lab = Snapshot(hosts=hosts, services=services)
+    first = pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("lab", FakeCollector(lab))])
+    second = pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("lab", FakeCollector(lab))])
+    assert second.diff is not None and second.diff.empty
+
+    saved = store.recent(cfg.state_dir, 1)[0]
+    assert saved == second.snapshot and first.snapshot.model_dump(exclude={"taken_at"}) == saved.model_dump(
+        exclude={"taken_at"}
+    )
+    texts = _texts(saved.model_dump())
+    assert not any(renderer_module._SURROGATES.search(t) for t in texts)
+    for name in {n for fields in _EXPECTED_FIELDS.values() for n in fields} | {"protocol", "host_ip"}:
+        assert any(f"{name}-bad\ufffdtext" in t for t in texts), name
+    for name in ("source", "destination", "type", "proxy", "domains", "forward_scheme"):
+        assert any(f"{name}-bad\ufffdtext" in t for t in texts), name
+    assert saved.routes[0].service == saved.services[0].id
+    assert saved.routes[0].forward_host == "name-bad\ufffdtext"
+    assert saved.hosts[0].guest_of == saved.services[1].id and "\ufffd" in saved.hosts[0].guest_of
+    assert saved.services[1].runs_host == saved.hosts[0].name == "name-bad\ufffdtext"
+
+    renderer = Renderer(cfg.output_dir, licensing.PRO_FEATURES)
+    renderer.render(saved, store.load_changelog(cfg.state_dir), cfg.breakglass)
+    _pages_hold_no_surrogate(renderer)
+    page = (tmp_path / "docs" / "services").glob("*.md")
+    assert any("description-bad\ufffdtext" in p.read_text(encoding="utf-8") for p in page)
+
+
+def _pages_hold_no_surrogate(renderer: Renderer) -> None:
+    names = {p.relative_to(renderer.out).as_posix() for p in renderer.generated}
+    assert {"index.md", "routes.md", "CHANGELOG.md", "break-glass.md", "topology.md"} <= names
+    assert any(n.startswith("services/") for n in names) and any(n.startswith("hosts/") for n in names)
+    assert len([n for n in names if n.startswith("services/")]) == 2  # the container and the VM
+    for path in renderer.generated:
+        text = path.read_text(encoding="utf-8")  # every page was written and reads back as UTF-8
+        assert not renderer_module._SURROGATES.search(text)
+        assert "bad\ufffdtext" in text or path.name == "CHANGELOG.md"  # no changes: no names on it
+
+
+def test_a_renderer_handed_text_with_lone_surrogates_writes_every_page(tmp_path):
+    hosts, services, routes = _surrogate_lab()
+    renderer = Renderer(tmp_path, licensing.PRO_FEATURES)
+    renderer.render(Snapshot(hosts=hosts, services=services, routes=routes), [], None)
+    _pages_hold_no_surrogate(renderer)
+
+
+_any_text = st.text(alphabet=st.characters(codec=None), max_size=20)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    st.lists(_any_text, min_size=12, max_size=12),
+    st.dictionaries(_any_text, _any_text, max_size=3),
+)
+def test_a_cleaned_snapshot_with_any_text_is_saved_and_read_back(tmp_path_factory, t, labels):
+    from homelabscribe import store
+    from homelabscribe.models import Route
+
+    snap = Snapshot(
+        hosts=[Host(name=t[0], kind="docker", os=t[1])],
+        services=[
+            Service(name=t[2], host=t[0], kind="container", image=t[3], networks=[t[4]], labels=labels),
+            Service(name=t[5], host=t[0], kind="manual", display_name=t[6], description=t[7], category=t[8]),
+        ],
+        routes=[Route(proxy=t[9], domains=[t[10]], forward_host=t[11], forward_port=1)],
+    )
+    cleaned = pipeline.clean_snapshot(snap)
+    state = tmp_path_factory.mktemp("state")
+    store.save(cleaned, state)
+    assert store.recent(state, 1) == [cleaned]
+    if not any(renderer_module._SURROGATES.search(x) for x in _texts(snap.model_dump())):
+        assert cleaned == snap

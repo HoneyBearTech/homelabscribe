@@ -111,6 +111,11 @@ def _escape_char(c: str) -> str:
 _SURROGATES = re.compile("[\ud800-\udfff]")
 
 
+def replace_surrogates(text: str) -> str:
+    """The text with U+FFFD (the replacement character) for every lone surrogate, which no file can hold."""
+    return _SURROGATES.sub("\ufffd", text)
+
+
 def yaml_text(value: object) -> str:
     """A text as a one-line YAML scalar that every YAML reader reads back as exactly the same str.
 
@@ -121,7 +126,7 @@ def yaml_text(value: object) -> str:
     back as exactly the same str.
     """
     text = value if isinstance(value, str) else str(value)
-    text = _SURROGATES.sub("\ufffd", text)
+    text = replace_surrogates(text)
     if _plain_ok(text):
         return text
     return '"' + "".join(_escape_char(c) for c in text) + '"'
@@ -327,7 +332,7 @@ class Renderer:
         path = self.out / rel
         self.generated.add(path)
         previous = path.read_text() if path.exists() else None
-        merged = notes.merge(content, previous)
+        merged = notes.merge(replace_surrogates(content), previous)
         if merged == previous:
             return
         path.parent.mkdir(parents=True, exist_ok=True)

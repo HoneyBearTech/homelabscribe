@@ -13,7 +13,7 @@ from homelabscribe.config import Config
 from homelabscribe.diff import Diff, compare
 from homelabscribe.enrich import enrich, link_guests, link_routes, load_catalog
 from homelabscribe.models import Host, Service, Snapshot
-from homelabscribe.renderer import Renderer
+from homelabscribe.renderer import Renderer, replace_surrogates
 
 
 @dataclass
@@ -50,6 +50,26 @@ def _carry_over(previous: Snapshot, collector, snap: Snapshot) -> tuple[list[Hos
     hosts = [h for h in hosts if h.name not in present]
     names = {h.name for h in hosts}
     return hosts, [s for s in previous.services if s.host in names]
+
+
+def _without_surrogates(value):
+    """`value` with every lone surrogate in every str in it, dict keys included, replaced by U+FFFD."""
+    if isinstance(value, str):
+        return replace_surrogates(value)
+    if isinstance(value, list):
+        return [_without_surrogates(v) for v in value]
+    if isinstance(value, dict):
+        return {_without_surrogates(k): _without_surrogates(v) for k, v in value.items()}
+    return value
+
+
+def clean_snapshot(snap: Snapshot) -> Snapshot:
+    """A copy of the snapshot that can be saved: text read from a source may hold a lone surrogate.
+
+    The snapshot is turned into plain lists, dicts and values, cleaned, and read back into the models, so
+    every field of every model is covered, fields added later included.
+    """
+    return Snapshot.model_validate(_without_surrogates(snap.model_dump()))
 
 
 def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
@@ -102,6 +122,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
             if previous:
                 snap.routes += [r for r in previous.routes if r.proxy == proxy.name]
     link_routes(snap.routes, snap.hosts, snap.services)
+    snap = clean_snapshot(snap)
 
     store.save(snap, cfg.state_dir)
 
