@@ -71,5 +71,15 @@ def atomic_write(path: Path, data: bytes) -> None:
 
 
 def read_text(path: Path) -> str:
-    """The file's text, which must be UTF-8. Raises OSError, or UnicodeDecodeError for any other encoding."""
-    return path.read_bytes().decode("utf-8")
+    """The text of a plain file, which must be UTF-8 and hold no NUL character.
+
+    Raises OSError for a file that is not a plain file (a link is followed; a pipe or device is never
+    opened, as that could block) and UnicodeDecodeError for any other encoding. UTF-16 without a byte-order
+    mark would decode as UTF-8 with a NUL after every letter, so a NUL counts as another encoding.
+    """
+    if not stat.S_ISREG(os.stat(path).st_mode):
+        raise OSError(errno.EINVAL, "not a regular file")
+    text = path.read_bytes().decode("utf-8")
+    if "\0" in text:
+        raise UnicodeDecodeError("utf-8", b"\0", 0, 1, "NUL character")
+    return text

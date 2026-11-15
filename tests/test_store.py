@@ -3,6 +3,7 @@
 import errno
 import json
 import os
+from datetime import datetime
 
 import pytest
 from hypothesis import given
@@ -11,6 +12,7 @@ from hypothesis import strategies as st
 from homelabscribe import fsutil, store
 from homelabscribe.demo import demo_snapshots
 from homelabscribe.enrich import enrich, load_catalog
+from homelabscribe.renderer import _when
 
 ROOT = os.name != "posix" or os.geteuid() == 0
 
@@ -181,6 +183,62 @@ def test_a_good_changelog_is_loaded_as_it_is(tmp_path):
     skipped = []
     assert store.load_changelog(tmp_path, skipped) == [{"at": "x"}] and skipped == []
     assert store.load_changelog(tmp_path / "none") == []
+
+
+def test_a_changelog_that_cannot_be_moved_aside_is_kept_and_blocks_the_new_one(tmp_path):
+    (tmp_path / "changelog.json").write_bytes(b"{")
+    for name in ["changelog.json.damaged", *(f"changelog.json.damaged-{n}" for n in range(2, 1000))]:
+        (tmp_path / name).write_bytes(b"older")
+    skipped = []
+    with pytest.raises(store.ChangelogBlocked):
+        store.load_changelog(tmp_path, skipped)
+    assert (tmp_path / "changelog.json").read_bytes() == b"{"
+    assert (tmp_path / "changelog.json.damaged").read_bytes() == b"older"
+    assert len(skipped) == 1 and "could not be moved aside" in skipped[0]
+
+
+def test_a_failed_move_never_falls_back_to_a_rename(tmp_path, monkeypatch):
+    (tmp_path / "changelog.json").write_bytes(b"{")
+
+    def no_links(*a, **k):
+        raise OSError(errno.EPERM, "no hard links here")
+
+    monkeypatch.setattr(os, "link", no_links)
+    with pytest.raises(store.ChangelogBlocked):
+        store.load_changelog(tmp_path, [])
+    assert (tmp_path / "changelog.json").read_bytes() == b"{"
+    assert not (tmp_path / "changelog.json.damaged").exists()
+
+
+@pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+def test_utf16_without_a_byte_order_mark_is_not_text(tmp_path, codec):
+    f = tmp_path / "x.md"
+    f.write_bytes("hello <!-- homelabscribe:notes:start -->".encode(codec))
+    with pytest.raises(UnicodeDecodeError):
+        fsutil.read_text(f)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs a named pipe")
+def test_a_pipe_is_never_opened_as_a_file(tmp_path):
+    os.mkfifo(tmp_path / "x.json")
+    with pytest.raises(OSError):
+        fsutil.read_text(tmp_path / "x.json")
+
+
+@given(
+    st.datetimes(
+        min_value=datetime(1, 1, 2), max_value=datetime(9999, 12, 30), timezones=st.timezones() | st.none()
+    )
+)
+def test_a_date_that_passes_entry_ok_can_be_shown(dt):
+    entry = {"at": dt.isoformat(), "changes": []}
+    if store.entry_ok(entry):
+        assert _when(datetime.fromisoformat(entry["at"]))
+
+
+def test_entry_ok_rejects_a_date_that_has_no_local_time():
+    assert not store.entry_ok({"at": "0001-01-01T00:00:00+14:00", "changes": []})
+    assert not store.entry_ok({"at": "9999-12-31T23:59:59-14:00", "changes": []})
 
 
 @given(

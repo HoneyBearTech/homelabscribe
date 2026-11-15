@@ -64,8 +64,8 @@ def entry_ok(entry: object) -> bool:
     if not isinstance(entry, dict) or not isinstance(entry.get("at"), str):
         return False
     try:
-        datetime.fromisoformat(entry["at"])
-    except ValueError:
+        datetime.fromisoformat(entry["at"]).astimezone()  # the pages show local time
+    except (ValueError, OverflowError, OSError):
         return False
     changes = entry.get("changes")
     return isinstance(changes, list) and all(
@@ -74,25 +74,24 @@ def entry_ok(entry: object) -> bool:
     )
 
 
+class ChangelogBlocked(Exception):
+    """changelog.json cannot be used and could not be moved aside, so it must not be written over."""
+
+
 def _move_aside(path: Path) -> str | None:
     """Move a changelog that cannot be used to `changelog.json.damaged` (then `-2`, `-3`; never replacing).
 
+    A hard link makes the new name and fails if the name is taken; only then is the old name removed.
     Returns the new name, or None if it could not be moved.
     """
     for n in range(1, 1000):
         dest = path.with_name(path.name + (".damaged" if n == 1 else f".damaged-{n}"))
-        if os.path.lexists(dest):
-            continue
         try:
-            os.link(path, dest)  # fails if the name is taken, unlike a rename
+            os.link(path, dest, follow_symlinks=False)
         except FileExistsError:
             continue
-        except OSError:  # no hard links here (or a folder): a plain rename
-            try:
-                path.rename(dest)
-            except OSError:
-                return None
-            return dest.name
+        except (OSError, NotImplementedError):
+            return None
         with contextlib.suppress(OSError):
             path.unlink()
         return dest.name
@@ -100,7 +99,10 @@ def _move_aside(path: Path) -> str | None:
 
 
 def load_changelog(state_dir: Path, skipped: list[str] | None = None) -> list[dict]:
-    """The entries of changelog.json. A file that cannot be used is moved aside and an empty list returned."""
+    """The entries of changelog.json. A file that cannot be used is moved aside and an empty list returned.
+
+    Raises ChangelogBlocked when it cannot be used and cannot be moved aside either: it stays as it is.
+    """
     path = state_dir / "changelog.json"
     if not os.path.lexists(path):
         return []
@@ -113,8 +115,10 @@ def load_changelog(state_dir: Path, skipped: list[str] | None = None) -> list[di
         why = "damaged or could not be read"
     moved = _move_aside(path)
     if skipped is not None:
-        note = f"moved to {moved}" if moved else "left in place"
+        note = f"moved to {moved}" if moved else "could not be moved aside, left as it is and not changed"
         skipped.append(f"changelog.json ({why}; {note})")
+    if moved is None or os.path.lexists(path):
+        raise ChangelogBlocked
     return []
 
 
