@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import itertools
 import os
 import re
@@ -140,9 +141,12 @@ def _when(dt: datetime) -> str:
 # Create the file itself, never what a link in its place points at (and as bytes, where that is a choice).
 _NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
 
+# What a file system that cannot sync a file at all answers: the copy is then as safe as it allows.
+_NO_SYNC = frozenset({errno.EINVAL, errno.ENOTSUP, errno.ENOSYS})
+
 
 def _fill(fd: int, data: bytes) -> None:
-    """Write all of `data` to the new file open at `fd`, flush it to disk and close it."""
+    """Write all of `data` to the new file open at `fd`, flush it to disk where that is possible, close it."""
     try:
         f = os.fdopen(fd, "wb")
     except BaseException:
@@ -151,7 +155,11 @@ def _fill(fd: int, data: bytes) -> None:
     with f:
         f.write(data)
         f.flush()
-        os.fsync(f.fileno())  # on disk before the page is removed, so a crash cannot leave a short copy
+        try:
+            os.fsync(f.fileno())  # on disk before the page is removed, so a crash cannot leave a short copy
+        except OSError as e:
+            if e.errno not in _NO_SYNC:
+                raise
 
 
 def _version(st: os.stat_result) -> tuple[int, int, int, int]:

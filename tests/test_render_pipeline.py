@@ -1,3 +1,4 @@
+import errno
 import os
 import re
 import stat
@@ -238,13 +239,27 @@ def test_a_failed_flush_to_disk_keeps_the_page_and_leaves_no_file(tmp_path, monk
     snap, data = _ready_to_archive(tmp_path)
 
     def fsync(fd):
-        raise OSError(5, "Input/output error")
+        raise OSError(
+            errno.EIO, "Input/output error"
+        )  # a real failure, unlike a file system that cannot sync
 
     monkeypatch.setattr(os, "fsync", fsync)
     with pytest.raises(OSError, match="Input/output error"):
         Renderer(tmp_path).render(snap)
     assert (tmp_path / "services" / "plex.md").read_bytes() == data
     assert not list((tmp_path / "archive" / "services").iterdir())
+
+
+def test_a_file_system_that_cannot_sync_still_archives(tmp_path, monkeypatch):
+    snap, data = _ready_to_archive(tmp_path)
+
+    def fsync(fd):
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    Renderer(tmp_path).render(snap)
+    assert not (tmp_path / "services" / "plex.md").exists()
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == data
 
 
 def test_a_page_saved_while_it_is_copied_is_kept_for_the_next_run(tmp_path, monkeypatch):
