@@ -7,6 +7,7 @@ never anywhere else, and only after a scan that has something to say.
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -22,7 +23,12 @@ MAX_CHARS = 1900
 MAX_BYTES = 3000
 
 
-_BIDI = {*range(0x202A, 0x202F), *range(0x2066, 0x206A)}
+_ESCAPED_CATEGORIES = {
+    "Cc",
+    "Cf",
+    "Zl",
+    "Zp",
+}  # controls, format (bidi, zero-width) and line/paragraph separators
 _DISCORD_MARKUP = set("\\*_~`|>[]()<")
 
 
@@ -37,28 +43,37 @@ def _encodable(text: str) -> str:
 
 
 def _plain(text: str) -> str:
-    """Always-encodable, one-line text: lone surrogates, control and bidi characters are escaped."""
-    text = _encodable(text)
+    """Always-encodable, one-line text: lone surrogates and every control, format and separator is escaped."""
     out = []
-    for ch in text:
+    for ch in _encodable(text):
         o = ord(ch)
         if ch in "\n\r\t":
             out.append({"\n": "\\n", "\r": "\\r", "\t": "\\t"}[ch])
-        elif o < 0x20 or o == 0x7F or o in _BIDI:
+        elif unicodedata.category(ch) in _ESCAPED_CATEGORIES:
             out.append(f"\\x{o:02x}" if o < 0x100 else f"\\u{o:04x}")
         else:
             out.append(ch)
     return "".join(out)
 
 
+def _discord(text: str) -> str:
+    return "".join("\\" + ch if ch in _DISCORD_MARKUP else ch for ch in text)
+
+
 def _skip_line(skip: str, discord: bool) -> str:
-    """`Skipped: <path> (<reason>)`, the file name made safe as text (and, for Discord, as plain markup)."""
+    """`Skipped: <path> (<reason>)`, the name and reason made safe as text (and for Discord, markup)."""
     path = _path(skip)
-    reason = str(skip)[len(path) :] if str(skip).startswith(path) else ""  # ` (<reason>)`, or nothing
-    name = _plain(path)
+    rest = str(skip)[len(path) :] if str(skip).startswith(path) else ""  # ` (<reason>)`, or nothing
+    name, reason = _plain(path), _plain(rest)
     if discord:
-        name = "".join("\\" + ch if ch in _DISCORD_MARKUP else ch for ch in name)
-    return f"Skipped: {name}{_plain(reason)}"
+        name = _discord(name)
+        if reason.startswith(" (") and reason.endswith(
+            ")"
+        ):  # the brackets around the reason stay as they are
+            reason = " (" + _discord(reason[2:-1]) + ")"
+        else:
+            reason = _discord(reason)
+    return f"Skipped: {name}{reason}"
 
 
 def _fits(text: str) -> bool:

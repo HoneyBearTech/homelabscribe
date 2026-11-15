@@ -359,3 +359,51 @@ def test_notify_with_on_twice_is_a_config_error(tmp_path):
     )
     with pytest.raises(ValidationError, match="`on` twice"):
         load_config(path)
+
+
+# --- escaping by Unicode category, and the reason ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("target", [NTFY, DISCORD])
+@pytest.mark.parametrize("char", [" ", " ", "\x85", "‎", "‏", "​", "﻿", "؜", "\x0b", "\x0c", "\x1c"])
+def test_any_line_splitting_character_in_a_name_stays_on_one_line(tmp_path, char, target):
+    sent = []
+    notify.notify_after_scan(
+        [target], tmp_path, None, [], [Skip(f"a{char}b.md", "r")], post=lambda t, ti, b: sent.append(b)
+    )
+    body = sent[0]
+    assert char not in body and len(body.splitlines()) == 1 and body.startswith("Skipped: a")
+    assert body.endswith("b.md (r)") and "\\" in body
+
+
+def test_thirty_line_separators_are_one_line_and_the_cap_holds():
+    sep = chr(0x2028)
+    skips = [Skip("x" + sep * 30 + str(i), "r") for i in range(20)]
+    body = notify.build_message(None, [], False, ["errors"], skips)[1]
+    lines = body.splitlines()  # a real line split: nothing the name holds adds one
+    shown = [ln for ln in lines if ln.startswith("Skipped: x")]
+    assert len(lines) == len(shown) + 1 <= notify.MAX_LINES + 1
+    assert lines[-1] == f"...and {20 - len(shown)} more"
+    assert sep not in body and "\\u2028" in body
+    many = notify.build_message(None, [], False, ["errors"], [Skip(f"a{sep}{i}", "r") for i in range(40)])[1]
+    assert len(many.splitlines()) == notify.MAX_LINES + 1  # the cap of 15 lines still holds
+
+
+def test_specific_escapes_are_readable():
+    line = notify.build_message(None, [], False, ["errors"], [Skip("a\x85b‎c﻿d", "r")])[1]
+    assert line == "Skipped: a\\x85b\\u200ec\\ufeffd (r)"
+
+
+def test_a_reason_with_text_cannot_format_on_discord_but_keeps_its_brackets():
+    class Odd(str):
+        path = "a.md"
+
+    skip = Odd("a.md (**bold** [x](https://e.invalid) @everyone\nCould not read: y)")
+    body = notify.build_message(None, [], False, ["errors"], [skip], kind="discord")[1]
+    assert (
+        body
+        == "Skipped: a.md (\\*\\*bold\\*\\* \\[x\\]\\(https://e.invalid\\) @everyone\\\\nCould not read: y)"
+    )
+    assert len(body.splitlines()) == 1
+    plain = notify.build_message(None, [], False, ["errors"], [skip], kind="ntfy")[1]
+    assert plain == "Skipped: a.md (**bold** [x](https://e.invalid) @everyone\\nCould not read: y)"
