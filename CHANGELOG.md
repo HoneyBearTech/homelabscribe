@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - Dependency updates are proposed by Renovate (`renovate.json`) instead of Dependabot. It regenerates the hash-pinned lockfiles in `requirements/` with the uv command in each file's header, and also covers the images in `.gitlab-ci.yml`, which used to be bumped by hand.
 
 ### Fixed
+- The front matter of generated pages is always valid YAML and always text: a title, host, category, status or image such as `Media: TV`, `123`, `true` or one with a line break is now quoted, and the category tag is built from the category's page-name form. The HTML copy shows the text of a quoted title without the quotes.
 - Proxmox nodes each show their own address (from the cluster status) instead of the address of the node the API was reached through. Unreadable-source messages are one short line.
 
 ### Added
