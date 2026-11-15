@@ -7,6 +7,7 @@ secret values and must either return a result or fail with a narrow, expected er
 from __future__ import annotations
 
 import pytest
+import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -16,6 +17,7 @@ from homelabscribe.collectors.docker import parse_container, parse_depends_on, p
 from homelabscribe.collectors.proxmox import parse_guest
 from homelabscribe.htmlsite import page_html
 from homelabscribe.redact import clean_labels, env_names
+from homelabscribe.renderer import yaml_text
 
 text = st.text(max_size=40)
 json_scalar = st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | text
@@ -226,3 +228,18 @@ def test_html_page_carries_no_markup_from_the_page_text(source, rel):
         if "src" in attrs:
             assert scheme_and_host(attrs["src"] or "") == ("", "")
             assert not (attrs["src"] or "").replace("\\", "/").startswith("/")
+
+
+@PROFILE
+@given(st.text(alphabet=st.characters(codec=None), max_size=40))
+def test_front_matter_value_is_one_line_and_reads_back_as_the_same_text(value):
+    """Any text, lone surrogates included, is written on one line that PyYAML reads back unchanged.
+
+    A lone surrogate cannot be written to a UTF-8 file, so it is written as a `\\uD800` escape: the
+    file stays valid and the render does not stop.
+    """
+    out = yaml_text(value)
+    assert len(out.splitlines()) == 1 and "\n" not in out and "\r" not in out
+    out.encode("utf-8")  # writable to a file
+    assert yaml.safe_load(f"key: {out}") == {"key": value}
+    assert yaml.safe_load(f"[a, {out}]") == ["a", value]

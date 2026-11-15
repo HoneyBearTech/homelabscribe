@@ -35,6 +35,7 @@ TARGETS = {
     "notes": "test_notes_merge_keeps_markers_and_notes",
     "license": "test_license_verify_rejects_garbage_cleanly",
     "html_page": "test_html_page_carries_no_markup_from_the_page_text",
+    "front_matter": "test_front_matter_value_is_one_line_and_reads_back_as_the_same_text",
 }
 
 

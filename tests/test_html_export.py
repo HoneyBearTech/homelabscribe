@@ -984,3 +984,49 @@ def test_h13_a_destination_that_is_a_link_or_lies_behind_a_linked_folder_is_not_
     ).read_text() == owned
     assert (html / "index.html").is_symlink() and (html / "stale.html").is_symlink()
     assert (html / "services").is_symlink() and (html / "topology.html").is_symlink()
+
+
+# ---- H5b: a title the renderer had to quote ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "title", ["Media: TV", 'say "hi" \\ back', "Caf\u00e9 \u65e5\u672c\u8a9e", "123", "two\nlines"]
+)
+def test_h5_a_title_written_by_the_renderer_shows_as_its_text(title):
+    from homelabscribe.renderer import yaml_text
+
+    got, body = htmlsite.split_front_matter(f"---\ntitle: {yaml_text(title)}\n---\n# H\n")
+    assert got == title and body == "# H\n"
+
+
+@pytest.mark.parametrize(
+    ("value", "shown"),
+    [
+        ('"unclosed', '"unclosed'),
+        ('"a" "b"', '"a" "b"'),
+        ('"a": b', '"a": b'),
+        ('"a" # c', '"a" # c'),
+        ('"bad \\q escape"', '"bad \\q escape"'),
+        ("'it''s'", "it's"),
+        ('"x"y', '"x"y'),
+    ],
+)
+def test_h5_other_quoted_looking_values_keep_todays_behaviour_and_never_raise(value, shown):
+    got, _ = htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n# H\n")
+    assert got == shown
+
+
+def test_h5_an_empty_quoted_title_falls_back_to_the_heading():
+    assert htmlsite.split_front_matter('---\ntitle: ""\n---\n# H\n')[0] is None
+    assert "<title>H</title>" in htmlsite.page_html('---\ntitle: ""\n---\n# H\n')
+
+
+def test_h5_the_exported_page_of_a_service_titled_with_a_colon_has_no_quote_marks(tmp_path):
+    snap = _lab()
+    snap.services[0].display_name = "Media: TV"
+    out, html, _ = _site(tmp_path, snap)
+    md = (out / "services" / "media-tv.md").read_text()
+    assert md.startswith('---\ntitle: "Media: TV"\n')
+    page = (html / "services" / "media-tv.html").read_text()
+    assert "<title>Media: TV</title>" in page
+    assert "<h1>Media: TV</h1>" in page

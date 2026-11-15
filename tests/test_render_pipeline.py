@@ -1,10 +1,14 @@
 import re
 
+import pytest
+import yaml
+
 from homelabscribe import licensing, notes, pipeline
 from homelabscribe.config import Config, DockerHostConfig, ProxmoxConfig
 from homelabscribe.demo import demo_snapshots
 from homelabscribe.enrich import enrich, load_catalog
-from homelabscribe.renderer import Renderer
+from homelabscribe.models import Host, Service, Snapshot
+from homelabscribe.renderer import Renderer, slug
 
 
 def _snap():
@@ -155,3 +159,166 @@ def test_break_glass_does_not_mistake_a_pihole_exporter_for_the_dns_server(tmp_p
     Renderer(tmp_path, licensing.PRO_FEATURES).render(snap, [], BreakGlassConfig())
     text = (tmp_path / "break-glass.md").read_text()
     assert "look up website names" in text and "**b**" in text
+
+
+# ---- front matter is always valid YAML and always text ------------------------------------------
+
+AWKWARD = [
+    "Media: TV",
+    "- dash",
+    "@home",
+    "123",
+    "true",
+    "null",
+    "1.10",
+    "#x",
+    "[x]",
+    "No",
+    "~",
+    "A [beta]",
+    "Dev: tools",
+    'say "hi" \\ now',
+    "two\nlines",
+    "tab\there",
+    " padded ",
+    "trailing:",
+    "k: v # c",
+    "Caf\u00e9 \u65e5\u672c\u8a9e",
+    "nel\x85 ls\u2028 ps\u2029 bom\ufeff del\x7f",
+    "{a: b}",
+    "*star",
+    "!tag",
+    "'single'",
+    "",
+]
+
+
+def _front_matter(text: str) -> dict:
+    assert text.startswith("---\n")
+    head = text.split("\n---\n", 1)[0][4:]
+    return yaml.safe_load(head)
+
+
+def _awkward_lab() -> Snapshot:
+    hosts, services, slugs = [], [], set()
+    for i, value in enumerate(AWKWARD):
+        name = f"h{i}-{value}"
+        title = value
+        if slug(title) in slugs:  # two titles with the same page name would share one file
+            title = f"{value} again"
+        slugs.add(slug(title))
+        hosts.append(Host(name=name, kind="docker"))
+        services.append(
+            Service(
+                name=f"c{i}",
+                display_name=title,
+                host=name,
+                kind="container",
+                status=value or "unknown",
+                image=value or None,
+                category=value or "Other",
+            )
+        )
+    return Snapshot(hosts=hosts, services=services)
+
+
+def test_front_matter_of_awkward_values_is_valid_yaml_text(tmp_path):
+    snap = _awkward_lab()
+    renderer = Renderer(tmp_path)
+    renderer.render(snap)
+    seen = 0
+    for s in snap.services:
+        shared = sum(o.title.lower() == s.title.lower() for o in snap.services) > 1
+        page = tmp_path / "services" / f"{slug(f'{s.title}-{s.host}' if shared else s.title)}.md"
+        text = page.read_text()
+        fm = _front_matter(text)
+        want = ["title", "host", "category", "status"] + (["image"] if s.image else []) + ["tags"]
+        assert list(fm) == want
+        assert fm["title"] == s.title and type(fm["title"]) is str
+        assert fm["host"] == s.host and fm["category"] == s.category and fm["status"] == s.status
+        assert fm.get("image") == s.image
+        assert fm["tags"][0] == "homelab" and len(fm["tags"]) == 2
+        assert all(type(t) is str for t in fm["tags"])
+        assert fm["tags"][1] == slug(s.category)
+        assert text.count(notes.START) == 1 and text.rstrip().endswith(notes.END)
+        assert text.split("\n---\n", 1)[1].startswith(f"# {s.title}\n")
+        seen += 1
+    assert seen == len(AWKWARD)
+    for h in snap.hosts:
+        page = next(p for p in renderer.generated if p.parent.name == "hosts" and p.stem == slug(h.name))
+        text = page.read_text()
+        fm = _front_matter(text)
+        assert list(fm) == ["title", "kind", "tags"]
+        assert fm["title"] == h.name and fm["kind"] == "docker" and fm["tags"] == ["homelab", "host"]
+        assert text.count(notes.START) == 1 and text.rstrip().endswith(notes.END)
+
+
+def test_ordinary_values_stay_plain(tmp_path):
+    snap = Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[
+            Service(
+                name="plex",
+                host="nova",
+                kind="container",
+                status="running",
+                image="lscr.io/linuxserver/sonarr:latest",
+                category="Virtual machines",
+            )
+        ],
+    )
+    Renderer(tmp_path).render(snap)
+    head = (tmp_path / "services" / "plex.md").read_text().split("\n---\n", 1)[0]
+    assert head == (
+        "---\ntitle: plex\nhost: nova\ncategory: Virtual machines\nstatus: running\n"
+        "image: lscr.io/linuxserver/sonarr:latest\ntags: [homelab, virtual-machines]"
+    )
+
+
+@pytest.mark.parametrize(
+    ("category", "tag"),
+    [
+        ("Dashboards", "dashboards"),
+        ("Databases", "databases"),
+        ("Development", "development"),
+        ("Downloads", "downloads"),
+        ("Files", "files"),
+        ("Games", "games"),
+        ("Home", "home"),
+        ("Infrastructure", "infrastructure"),
+        ("Media", "media"),
+        ("Monitoring", "monitoring"),
+        ("Network", "network"),
+        ("Photos", "photos"),
+        ("Security", "security"),
+        ("Other", "other"),
+        ("Virtual machines", "virtual-machines"),
+        ("Containers (LXC)", "containers-lxc"),
+        ("123", '"123"'),
+        ("No", '"no"'),
+    ],
+)
+def test_category_tag(tmp_path, category, tag):
+    snap = Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[Service(name="x", host="nova", kind="container", category=category)],
+    )
+    Renderer(tmp_path).render(snap)
+    assert f"tags: [homelab, {tag}]\n" in (tmp_path / "services" / "x.md").read_text()
+
+
+def test_the_allow_list_leaves_only_plain_text_unquoted():
+    from homelabscribe.renderer import yaml_text
+
+    samples = [*AWKWARD, "Plex", "Pi-hole", "a b", "x:1", "yes", "YES", "Off", "N", "y", "NULL", "e5", "1e3"]
+    samples += [chr(c) for c in range(0x2000)] + [f"a{chr(c)}b" for c in range(0x300)]
+    samples += [f"{w}{x}" for w in ("true", "no", "a") for x in ("", " ", ":", " #", ": b", "\n")]
+    for text in samples:
+        out = yaml_text(text)
+        if out == text:
+            assert text[0].isalpha()
+            assert text.lower() not in {"true", "false", "yes", "no", "on", "off", "y", "n", "null", "~"}
+            assert not text.endswith((" ", ":")) and ": " not in text and " #" not in text
+            assert yaml.safe_load(f"[{text}]") == [text]
+        else:
+            assert out.startswith('"') and out.endswith('"') and "\n" not in out
