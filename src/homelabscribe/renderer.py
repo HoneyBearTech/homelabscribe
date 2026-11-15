@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import hashlib
 import itertools
 import os
 import re
@@ -44,9 +45,19 @@ WEB_PORTS = {
 DNS_IMAGES = frozenset({"pihole", "pi-hole", "adguardhome"})  # exact image names, so exporters do not match
 
 
+SLUG_MAX = 200  # a page name stays well inside the 255 bytes most file systems allow for a file name
+
+
 def slug(text: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return s or "item"
+    """A page name: lower-case letters, digits and single hyphens, at most `SLUG_MAX` characters.
+
+    A longer name is cut to its first 191 characters (hyphens at the cut removed) and ends with a hyphen
+    and the first 8 hex digits of the SHA-256 of the whole name, so two long names stay apart.
+    """
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "item"
+    if len(s) <= SLUG_MAX:
+        return s
+    return f"{s[: SLUG_MAX - 9].rstrip('-')}-{hashlib.sha256(s.encode()).hexdigest()[:8]}"
 
 
 def tag_text(category: str) -> str:

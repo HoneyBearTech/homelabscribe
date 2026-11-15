@@ -1,4 +1,5 @@
 import errno
+import hashlib
 import os
 import re
 import stat
@@ -713,3 +714,75 @@ def test_merge_of_a_page_with_a_notes_block_is_unchanged():
     assert (
         notes.merge(rendered, f"{notes.START}\n{notes.END}") == f"head\n{notes.START}\n\n{notes.END}\ntail\n"
     )
+
+
+# ---- page names are never too long for a file name ----------------------------------------------
+
+
+def _old_slug(text: str) -> str:
+    """The rule before page names had a maximum length."""
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "item"
+
+
+def _links_resolve(out: Path) -> int:
+    """Every link from a page to another page points at a file. Returns how many links were checked."""
+    count = 0
+    for page in out.rglob("*.md"):
+        for target in re.findall(r"\]\(([^)#:\s]+\.md)\)", page.read_text()):
+            assert (page.parent / target).is_file(), (page, target)
+            count += 1
+    return count
+
+
+@pytest.mark.parametrize("length", [253, 300, 3000])
+def test_very_long_titles_and_host_names_render_and_links_point_at_the_files(tmp_path, length):
+    title, host = ("Media server " * 300)[: length - 1] + "X", ("node-" * 700)[: length - 1] + "x"
+    assert len(_old_slug(title)) == len(_old_slug(host)) == length  # too long for a file name before
+    snap = Snapshot(
+        hosts=[Host(name=host, kind="docker"), Host(name="nova", kind="docker")],
+        services=[
+            Service(name="a", host=host, kind="container", display_name=title),
+            Service(name="b", host="nova", kind="container", display_name=title),  # same title, two hosts
+            Service(name="c", host=host, kind="container"),
+        ],
+    )
+    Renderer(tmp_path, licensing.PRO_FEATURES).render(snap, [], None)
+    names = [p.name for p in tmp_path.rglob("*.md")]
+    assert all(len(n) <= 203 for n in names)
+    assert len(list((tmp_path / "services").glob("*.md"))) == 3
+    assert (tmp_path / "hosts" / f"{slug(host)}.md").is_file()
+    assert _links_resolve(tmp_path) >= 7  # index → 3 services and 2 hosts, each service → its host
+    assert Renderer(tmp_path, licensing.PRO_FEATURES).render(snap, [], None) == []  # the same names again
+
+
+def test_a_name_of_200_characters_is_kept_and_one_of_252_is_cut():
+    assert slug("a" * 200) == "a" * 200
+    cut = slug("b" * 252)
+    assert cut == "b" * 191 + "-" + hashlib.sha256(("b" * 252).encode()).hexdigest()[:8]
+    assert len(cut) == 200
+
+
+def test_a_cut_name_does_not_end_the_cut_with_a_hyphen():
+    name = "a" * 190 + " b" + "c" * 100  # the cut falls just after the hyphen
+    assert slug(name).startswith("a" * 190 + "-") and "--" not in slug(name)
+    assert len(slug(name)) == 199
+
+
+def test_long_names_that_start_the_same_get_different_page_names():
+    first, second = "x" * 191 + "-one" + "y" * 20, "x" * 191 + "-two" + "y" * 20
+    assert slug(first) != slug(second)
+    assert slug(first)[:191] == slug(second)[:191]
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    st.text(max_size=600)
+    | st.lists(st.sampled_from(["a", "Z", "9", "-", " ", ".", "\u00e9"]), max_size=500).map("".join)
+    | st.text(alphabet="az09 -.", min_size=190, max_size=700)  # often longer than 200 as a page name
+)
+def test_slug_is_a_short_safe_page_name(text):
+    s = slug(text)
+    assert 0 < len(s) <= 200 and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", s)
+    assert slug(text) == s
+    if len(_old_slug(text)) <= 200:
+        assert s == _old_slug(text)
