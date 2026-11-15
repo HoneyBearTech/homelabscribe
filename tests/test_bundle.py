@@ -11,6 +11,7 @@ import io
 import json
 import re
 import socket
+import subprocess
 import sys
 import types
 import zipfile
@@ -211,6 +212,34 @@ def test_b1_a_write_that_fails_leaves_no_file_behind(tmp_path, monkeypatch):
     assert not out.exists()
     monkeypatch.setattr(Path, "open", real_open)
     assert bundle.create(cfg, None, [], out) == out and out.exists()  # the next run is not refused
+
+
+def test_b1_a_real_size_limit_leaves_no_file_behind(tmp_path):
+    resource = pytest.importorskip("resource")
+    del resource
+    script = tmp_path.parent / f"{tmp_path.name}-child.py"
+    script.write_text(
+        "import resource, signal, sys\n"
+        "from pathlib import Path\n"
+        "from homelabscribe import bundle\n"
+        "from homelabscribe.config import Config\n"
+        "out = Path(sys.argv[1])\n"
+        "signal.signal(signal.SIGXFSZ, signal.SIG_IGN)\n"
+        "resource.setrlimit(resource.RLIMIT_FSIZE, (512, 512))\n"
+        "try:\n"
+        "    bundle.create(Config(), None, [], out)\n"
+        "except OSError as e:\n"
+        "    print('OSError', e.errno, out.exists())\n"
+        "else:\n"
+        "    print('written')\n"
+    )
+    out = tmp_path / "bundle.zip"
+    done = subprocess.run(
+        [sys.executable, "-I", str(script), str(out)], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["OSError", "27", "False"], done.stdout
+    assert not out.exists()
 
 
 def test_b1_a_file_this_call_did_not_create_is_never_removed(tmp_path, monkeypatch):
@@ -626,6 +655,35 @@ def test_b6_environment_has_versions_and_platform_and_nothing_of_the_person(tmp_
     assert MARK not in text
 
 
+def test_b6_a_dependency_version_is_kept_without_its_local_label(monkeypatch):
+    versions = {
+        "docker": "7.1.0",
+        "requests": "1.2.3+build.internal.example",
+        "pydantic": "2.0.post1",
+        "typer": "1.0rc1",
+        "jinja2": "1!2.0",
+        "pyyaml": "3.4.5.dev2+nova.lan",
+        "cryptography": "nova.lan",
+        "proxmoxer": "+internal.example",
+    }
+    monkeypatch.setattr(bundle.metadata, "version", lambda name: versions[name])
+    monkeypatch.setattr(bundle, "_direct_dependencies", lambda: sorted(versions))
+    deps = bundle.environment()["dependencies"]
+    assert deps == {
+        "cryptography": "unknown",
+        "docker": "7.1.0",
+        "jinja2": "1!2.0",
+        "proxmoxer": "unknown",
+        "pydantic": "2.0.post1",
+        "pyyaml": "3.4.5.dev2",
+        "requests": "1.2.3",
+        "typer": "1.0rc1",
+    }
+    assert (
+        "internal" not in json.dumps(deps) and "nova" not in json.dumps(deps) and "+" not in json.dumps(deps)
+    )
+
+
 def test_b6_dependency_list_matches_the_project_file_and_survives_a_missing_install(monkeypatch):
     import tomllib
 
@@ -996,6 +1054,14 @@ def test_b11_no_seeded_marker_reaches_the_archive(tmp_path, monkeypatch, license
 
     monkeypatch.setattr(servers, "_answer", answer)
 
+    # A privately built dependency: its local version label carries a marker.
+    real_version = bundle.metadata.version
+    monkeypatch.setattr(
+        bundle.metadata,
+        "version",
+        lambda name: real_version(name) + f"+{MARK}-label" if name == "requests" else real_version(name),
+    )
+
     started = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=2)  # a zip keeps even seconds
     out = tmp_path / "bundle.zip"
     result = runner.invoke(app, ["doctor", "-c", str(config), "--bundle", "-o", str(out)])
@@ -1009,6 +1075,9 @@ def test_b11_no_seeded_marker_reaches_the_archive(tmp_path, monkeypatch, license
     for info in archive.infolist():
         assert started <= datetime(*info.date_time, tzinfo=UTC) <= finished
         assert info.create_system == 3 and info.external_attr == 0o644 << 16
+
+    env = json.loads(_text(archive, "environment.json"))["dependencies"]
+    assert env["requests"] == real_version("requests") and "+" not in env["requests"]
 
     # The fixed words, booleans, port numbers and URL schemes are kept; the rest is masked.
     redacted = yaml.safe_load(_text(archive, "config.redacted.yaml"))
@@ -1069,7 +1138,10 @@ def test_b12_the_bundle_adds_no_network_call_to_doctors_connection_tests(tmp_pat
     config = _config(tmp_path, extra)
     _save(tmp_path / "state", _lab(), "20261103T073000Z.json")
 
+    attempts: list[str] = []  # the code under test catches Exception, so record as well as raise
+
     def no_network(*args, **kwargs):
+        attempts.append("connection attempt")
         raise AssertionError("the bundle opened a network connection")
 
     monkeypatch.setattr(socket, "socket", no_network)
@@ -1078,11 +1150,14 @@ def test_b12_the_bundle_adds_no_network_call_to_doctors_connection_tests(tmp_pat
 
     assert runner.invoke(app, ["doctor", "-c", str(config)]).exit_code == 0
     plain, servers.calls = servers.calls, []
+    plain_attempts, attempts[:] = list(attempts), []  # what doctor's own connection tests do
     _bundle(tmp_path, config)
     assert servers.calls == plain == ["docker", "npm", "proxmox"]  # one test per source, bundle or not
+    assert attempts == plain_attempts  # the bundle adds no connection attempt of its own
 
     # Building the archive from finished checks asks no server anything.
     servers.calls = []
     checks = [bundle.Check("docker", 0, "ok", version="27.3.1", count=12)]
     data = bundle.build(load_config(config), config, checks, datetime.now(UTC))
     assert zipfile.ZipFile(io.BytesIO(data)).namelist() == list(bundle.MEMBERS) and servers.calls == []
+    assert attempts == plain_attempts  # building it from finished checks attempts nothing either

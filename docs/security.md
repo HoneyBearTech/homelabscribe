@@ -31,7 +31,7 @@ Credential handling: tokens come from the config or environment (`${VAR}`) and a
 | --- | --- |
 | `README.txt` | What the archive is and what was removed |
 | `doctor.txt` | For each configured source: its placeholder, its kind and OK, FAILED (with the type name of the error) or SKIPPED (needs Pro). The license as one of five fixed texts. Whether a config file was found |
-| `environment.json` | The versions of HomelabScribe, Python and the direct dependencies; the operating system family and machine type; whether it runs in a container |
+| `environment.json` | The versions of HomelabScribe, Python and the direct dependencies (only the public version number: a local label after a `+` is dropped, and a version of any other shape is `unknown`); the operating system family and machine type; whether it runs in a container |
 | `config.redacted.yaml` | The config as it was loaded, with its values masked, and the number of keys HomelabScribe does not know |
 | `snapshot-summary.json` | How many snapshots there are, the time of the newest and counts from it |
 
