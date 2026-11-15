@@ -71,6 +71,22 @@ def test_a_page_reported_by_the_render_is_not_reported_again_by_the_html_copy(co
     assert result.output.count("skipped: services/sonarr.md") == 1
 
 
+def _two_copies(tmp_path):
+    """Two files HomelabScribe did not write, unreadable, whose names differ only after ` (`."""
+    assert runner.invoke(app, ["run", "-c", str(tmp_path / "homelabscribe.yaml")]).exit_code == 0
+    for n in (1, 2):
+        (tmp_path / "docs" / "services" / f"plex ({n}).md").write_bytes(os.urandom(64) + b"\xff")
+
+
+@pytest.mark.parametrize("command", ["render", "run"])
+def test_two_unreadable_files_named_alike_each_get_a_line(config, tmp_path, command):
+    _two_copies(tmp_path)
+    result = runner.invoke(app, [command, "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    for n in (1, 2):
+        assert result.output.count(f"skipped: services/plex ({n}).md (not UTF-8, left as it is)") == 1
+
+
 def _damage_newest_snapshot(tmp_path):
     bad = tmp_path / "state" / "snapshots" / "99990101T000000Z.json"
     bad.write_bytes(b'{"hosts": [')
