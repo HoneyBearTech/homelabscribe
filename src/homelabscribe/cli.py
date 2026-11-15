@@ -81,13 +81,15 @@ def _render(cfg: Config, feats: frozenset[str], snapshot=None) -> pipeline.Rende
         raise typer.Exit(1) from e
 
 
-def _notify(cfg: Config, feats: frozenset[str], result: pipeline.ScanResult) -> None:
+def _notify(
+    cfg: Config, feats: frozenset[str], result: pipeline.ScanResult, skips: list[Skip] | None = None
+) -> None:
     if not cfg.notify:
         return
     if "notify" not in feats:
         typer.secho("Notifications need Pro. Skipped.", fg="yellow")
         return
-    for msg in notify.notify_after_scan(cfg.notify, cfg.state_dir, result.diff, result.errors):
+    for msg in notify.notify_after_scan(cfg.notify, cfg.state_dir, result.diff, result.errors, skips or []):
         typer.secho(f"  notification failed: {msg}", fg="red")
 
 
@@ -146,8 +148,13 @@ def run(
         result = _scan(cfg, feats)
         seen: set[str] = set()  # the files reported in this round, by path
         _report_scan(result, seen)
-        _notify(cfg, feats, result)
-        rendered = _render(cfg, feats, result.snapshot)
+        skips = list(result.file_skips)  # every file left alone in this round, for the one notification
+        rendered = None
+        try:
+            rendered = _render(cfg, feats, result.snapshot)
+            skips += rendered.skipped + (rendered.html.skipped if rendered.html else [])
+        finally:  # a failed render still sends what the scan found
+            _notify(cfg, feats, result, skips)
         _report_rendered(rendered, cfg, seen)
         if not every:
             if strict and (result.errors or result.file_skips or _skipped(rendered)):
