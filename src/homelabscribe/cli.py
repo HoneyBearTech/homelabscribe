@@ -53,9 +53,12 @@ def _report_file_skips(skips: list[Skip], seen: set[str]) -> None:
 
 
 def _report_rendered(rendered: pipeline.Rendered, cfg: Config, seen: set[str] | None = None) -> None:
-    """The lines after a render: files left alone, how many were written, and the HTML copy."""
+    """The lines after a render: files left alone, pages with a coded name, how many were written, and
+    the HTML copy."""
     seen = seen if seen is not None else set()
     _report_file_skips(rendered.skipped, seen)
+    for line in rendered.notices:  # information only: no exit status, no notification
+        typer.echo(f"  note: {line}".encode("utf-8", "backslashreplace").decode())
     typer.echo(f"Updated {len(rendered.written)} file(s) in {cfg.output_dir}.")
     if rendered.html:
         _report_file_skips(rendered.html.skipped, seen)

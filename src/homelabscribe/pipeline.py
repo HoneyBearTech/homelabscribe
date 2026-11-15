@@ -193,6 +193,7 @@ class Rendered:
     written: list[Path]  # Markdown files that changed
     html: htmlsite.Export | None = None  # the static HTML copy, when `html_dir` is set
     skipped: list[Skip] = field(default_factory=list)  # files left alone, as `<file> (<reason>)`
+    notices: list[str] = field(default_factory=list)  # pages that got a coded name (`Renderer.notices`)
 
 
 def html_dir_problem(cfg: Config) -> str | None:
@@ -228,7 +229,7 @@ def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | Non
         changelog = []
     written = r.render(snapshot, changelog, breakglass)
     html = htmlsite.export(cfg.output_dir, cfg.html_dir, r.generated) if cfg.html_dir is not None else None
-    return Rendered(written=written, html=html, skipped=skipped + r.skipped)
+    return Rendered(written=written, html=html, skipped=skipped + r.skipped, notices=list(r.notices))
 
 
 def render(cfg: Config, features: frozenset[str], snapshot: Snapshot | None = None):

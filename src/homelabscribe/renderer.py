@@ -7,11 +7,16 @@ import hashlib
 import itertools
 import os
 import re
+import stat
 import unicodedata
 from collections import defaultdict
+from collections.abc import Callable, Iterator
 from datetime import datetime
+from functools import partial
 from pathlib import Path
+from typing import TypeVar
 
+import yaml
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 
 from homelabscribe import __version__, fsutil, notes
@@ -45,6 +50,8 @@ WEB_PORTS = {
 }
 DNS_IMAGES = frozenset({"pihole", "pi-hole", "adguardhome"})  # exact image names, so exporters do not match
 
+T = TypeVar("T")
+
 
 SLUG_MAX = 200  # a page name stays well inside the 255 bytes most file systems allow for a file name
 
@@ -59,6 +66,81 @@ def slug(text: str) -> str:
     if len(s) <= SLUG_MAX:
         return s
     return f"{s[: SLUG_MAX - 9].rstrip('-')}-{hashlib.sha256(s.encode()).hexdigest()[:8]}"
+
+
+CODE_START = 8  # hex digits of the code a page gets when its name is already another page's
+
+
+def coded_name(base: str, key: str, taken: set[str], held: Callable[[str], bool] = lambda name: False) -> str:
+    """`base` with a hyphen and a code from `key` (the first 8 hex digits of its SHA-256), at most `SLUG_MAX`
+    characters, not in `taken` and not `held` (by a page written for someone else).
+
+    `base` is cut so the whole name fits (hyphens at the cut removed). When the name is taken, the code
+    grows by two digits (10, 12, ...) until it is free; with all 64 digits taken, `-2`, `-3`, ... follow.
+    """
+    return next(name for name in _code_names(base, key) if name not in taken and not held(name))
+
+
+def _code_names(base: str, key: str, counted: bool = True) -> Iterator[str]:
+    """The names `coded_name` tries, in order: the code with 8, 10, ... 64 hex digits, then (if `counted`)
+    the full code with `-2`, `-3`, ... for ever."""
+    digest = hashlib.sha256(replace_surrogates(key).encode()).hexdigest()
+    for n in range(CODE_START, len(digest) + 1, 2):
+        yield f"{base[: SLUG_MAX - 1 - n].rstrip('-')}-{digest[:n]}"
+    if not counted:
+        return
+    for i in itertools.count(2):
+        tail = f"{digest}-{i}"
+        yield f"{base[: SLUG_MAX - 1 - len(tail)].rstrip('-')}-{tail}"
+
+
+FRONT_MATTER_MAX = 64 * 1024  # bytes of a page read to find whose page it is
+
+
+def front_matter(path: Path) -> dict | None:
+    """The front matter of the page at `path` (the `---` block it starts with), or None. Never raises.
+
+    Only the first `FRONT_MATTER_MAX` bytes are read, and the block has to close within them. None for a
+    page that is missing, a link, not a plain file (a pipe or device is never opened) or unreadable, for a
+    block that is not UTF-8 or holds a NUL, for a page without such a block, and for a block that is not
+    a YAML mapping or that YAML cannot read (a date such as `2020-13-45`, a very long number, anything).
+    """
+    try:
+        if path.is_symlink() or not stat.S_ISREG(os.stat(path).st_mode):
+            return None
+        with path.open("rb") as f:
+            head = f.read(FRONT_MATTER_MAX)
+    except (OSError, ValueError):
+        return None
+    if not head.startswith(b"---\n"):
+        return None
+    end = head.find(b"\n---\n", 3)
+    if end < 0:
+        return None
+    try:
+        text = head[4:end].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if "\0" in text:
+        return None
+    try:
+        data = yaml.safe_load(text)
+    except Exception:  # whatever the reader makes of the text, the page then has no owner
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def page_key(s: Service) -> str:
+    """What the page of a look-alike says it was written for (`id:`): host, name and kind, and the number
+    of a VM or LXC. It does not depend on which other services there are."""
+    return f"{s.id}/{s.kind}" + ("" if s.vmid is None else f"/{s.vmid}")
+
+
+def tie_break(s: Service) -> tuple:
+    """Everything that tells two services apart, for an order that does not depend on the order of the scan:
+    title, host, names, kind and VM or LXC number, and last every other field (as text, which never fails)."""
+    vmid = -1 if s.vmid is None else s.vmid
+    return s.title, s.host, s.name, s.compose_service or "", s.kind, vmid, repr(s.model_dump())
 
 
 def tag_text(category: str) -> str:
@@ -260,22 +342,118 @@ class Renderer:
         self.written: list[Path] = []
         self.generated: set[Path] = set()
         self.skipped: list[Skip] = []  # `<page> (<reason>)` for each page left alone
+        self.notices: list[str] = []  # one line for each page whose name was already another page's
 
     # ---- helpers exposed to templates -------------------------------------------------
 
     def _context(self, snap: Snapshot) -> dict:
-        services = snap.visible_services()
+        # By category and title, as in the snapshot; services with the same title in a fixed order.
+        services = sorted(snap.visible_services(), key=lambda s: (s.category, s.title.lower(), *tie_break(s)))
         hosts = sorted(snap.hosts, key=lambda h: h.name)
         titles = defaultdict(int)
         for s in services:
             titles[s.title.lower()] += 1
-        host_slugs = {h.name: slug(h.name) for h in hosts}
         link_hosts = {h.name: h.link_host or h.name for h in hosts}
         by_name = {(s.host, s.compose_project, s.compose_service): s for s in services if s.compose_service}
 
-        def page(s: Service) -> str:
+        def base(s: Service) -> str:
             # Add the host only when two services share a title.
             return slug(s.title) if titles[s.title.lower()] == 1 else slug(f"{s.title}-{s.host}")
+
+        look_alikes: dict[str, list[Service]] = defaultdict(list)
+        for s in services:
+            look_alikes[base(s)].append(s)
+
+        def same_title_and_host(fm: dict, s: Service) -> bool:
+            title, host = replace_surrogates(s.title), replace_surrogates(s.host)
+            return fm.get("title") == title and fm.get("host") == host
+
+        def with_page_id(fm: dict, group: list[Service]) -> list[Service]:
+            # The members the page's `id` names: by `page_key`, or by the shorter `<host>/<name>` of an
+            # older page when that is one member's only.
+            page_id = fm.get("id")
+            full = [s for s in group if page_id == replace_surrogates(page_key(s))]
+            older = [s for s in group if page_id == replace_surrogates(s.id)]
+            return full or (older if len(older) == 1 else [])
+
+        def named_by(fm: dict, s: Service) -> bool:
+            return any(o is s for o in with_page_id(fm, look_alikes[base(s)]))
+
+        def service_owner(fm: dict, group: list[Service]) -> Service | None:
+            # The page's `id` first; else its title and host, if they are one member's only.
+            by_id = with_page_id(fm, group)
+            if len(by_id) == 1:
+                return by_id[0]
+            alike = [s for s in by_id or group if same_title_and_host(fm, s)]
+            if len(alike) == 1:
+                return alike[0]
+            return by_id[0] if by_id else None  # services the same in every way: the first in the fixed order
+
+        def service_keys(s: Service, group: list[Service]) -> list[str]:
+            # What the code is made from: host and title, and the page key too when another member has both.
+            short, long = f"{s.host}/{s.title}", f"{s.host}/{s.title}/{page_key(s)}"
+            shared = sum(o.host == s.host and o.title == s.title for o in group) > 1
+            return [long, short] if shared else [short, long]
+
+        def service_claims(fm: dict, s: Service) -> bool:
+            return named_by(fm, s) and same_title_and_host(fm, s)
+
+        def service_foreign(fm: dict, s: Service) -> bool:
+            # A page written for another service: its id (or, without one, its title and host) is another's.
+            if "id" in fm:
+                return not named_by(fm, s)
+            return not same_title_and_host(fm, s)
+
+        def fixed_order(s: Service) -> tuple:
+            # A service whose own title is unique first (its name is that title), then `tie_break`: only
+            # services the same in every way could come in the order of the scan (and so are their pages).
+            return titles[s.title.lower()] != 1, *tie_break(s)
+
+        service_names, service_extra, grouped = self._names(
+            "services",
+            services,
+            base,
+            fixed_order,
+            service_owner,
+            service_keys,
+            service_claims,
+            service_foreign,
+        )
+        host_list = list({h.name: h for h in hosts}.values())
+
+        def host_is(fm: dict, h: Host) -> bool:
+            return fm.get("title") == replace_surrogates(h.name)
+
+        host_names, host_extra, _ = self._names(
+            "hosts",
+            host_list,
+            lambda h: slug(h.name),
+            lambda h: h.name,
+            lambda fm, group: next((h for h in group if host_is(fm, h)), None),
+            lambda h, group: [h.name],
+            host_is,
+            lambda fm, h: not host_is(fm, h),
+        )
+        # By the service itself: two services can share an id (a VM and a container named like its host).
+        names = {id(s): n for s, n in zip(services, service_names, strict=True)}
+        names_by_id: dict[str, str] = {}
+        for s, n in zip(services, service_names, strict=True):
+            names_by_id.setdefault(s.id, n)
+        host_slugs = {h.name: n for h, n in zip(host_list, host_names, strict=True)}
+        self.notices = [
+            f'"{s.title}" on {s.host} has its own page services/{n}.md (its name matched "{o.title}")'
+            for s, n, o in service_extra
+        ] + [
+            f'host "{h.name}" has its own page hosts/{n}.md (its name matched "{o.name}")'
+            for h, n, o in host_extra
+        ]
+
+        def page(s: Service) -> str:
+            return names.get(id(s)) or names_by_id.get(s.id) or base(s)
+
+        def page_id(s: Service) -> str | None:
+            # Only on the pages of services whose page names clashed: the others stay as they were.
+            return page_key(s) if id(s) in grouped else None
 
         def address(s: Service) -> str | None:
             if s.url:
@@ -305,6 +483,7 @@ class Renderer:
             "hosts": hosts,
             "services": services,
             "page": page,
+            "page_id": page_id,
             "address": address,
             "deps": deps,
             "users": users,
@@ -312,6 +491,90 @@ class Renderer:
             "host_slug": lambda h: host_slugs.get(h.name, slug(h.name)),
             "host_slug_by_name": lambda name: host_slugs.get(name, slug(name)),
         }
+
+    def _names(
+        self,
+        folder: str,
+        items: list[T],
+        base: Callable[[T], str],
+        order: Callable[[T], tuple | str],
+        owner: Callable[[dict, list[T]], T | None],
+        keys: Callable[[T, list[T]], list[str]],
+        claims: Callable[[dict, T], bool],
+        foreign: Callable[[dict, T], bool],
+    ) -> tuple[list[str], list[tuple[T, str, T]], set[int]]:
+        """The page name of each item (in the order of `items`), `(item, name, owner)` for each item whose
+        base name was another's, and the `id()` of every item whose base name was shared.
+
+        Items with the same base name share it only in name: one keeps it, each other one gets the base name
+        with a code (`coded_name`). The one that keeps it is the one `owner` finds for the front matter of
+        the page already in `folder` under that name; without one, the first in `order`. Each other item
+        keeps a coded page already there that `claims` says was written for it (any of its `keys`, any code
+        length); otherwise it gets a new one from its first key, never a name held by a page that `foreign`
+        says was written for another item (the code grows instead). The result does not depend on the order
+        of `items`, and no two items get the same name.
+        """
+        groups: dict[str, list[T]] = defaultdict(list)
+        for it in items:
+            groups[base(it)].append(it)
+        taken = set(groups)
+        named: dict[int, str] = {}
+        owners: dict[str, T] = {}
+        grouped: set[int] = set()
+        new: list[tuple[str, T, list[T]]] = []
+        for name in sorted(groups):  # every owner, and every coded page kept, before any new name
+            group = groups[name]
+            if len(group) == 1:
+                named[id(group[0])] = name
+                continue
+            group = sorted(group, key=order)
+            grouped.update(id(it) for it in group)
+            fm = front_matter(self.out / folder / f"{name}.md")
+            owners[name] = (owner(fm, group) if fm is not None else None) or group[0]
+            named[id(owners[name])] = name
+            for it in group:
+                if it is owners[name]:
+                    continue
+                kept = self._kept_page(folder, name, keys(it, group), taken, lambda fm, it=it: claims(fm, it))
+                if kept is None:
+                    new.append((name, it, group))
+                else:
+                    taken.add(kept)
+                    named[id(it)] = kept
+        for name, it, group in new:
+            held = partial(self._held, folder, foreign=foreign, item=it)
+            coded = coded_name(name, keys(it, group)[0], taken, held)
+            taken.add(coded)
+            named[id(it)] = coded
+        extra = [
+            (it, named[id(it)], owners[name])
+            for name in sorted(owners)
+            for it in sorted(groups[name], key=order)
+            if it is not owners[name]
+        ]
+        return [named[id(it)] for it in items], extra, grouped
+
+    def _held(self, folder: str, name: str, *, foreign: Callable[[dict, T], bool], item: T) -> bool:
+        """True when a page in `folder` under `name` was written for another item than `item`, as `foreign`
+        reads its front matter."""
+        path = self.out / folder / f"{name}.md"
+        if not os.path.lexists(path):
+            return False
+        fm = front_matter(path)
+        return fm is not None and foreign(fm, item)
+
+    def _kept_page(
+        self, folder: str, base: str, keys: list[str], taken: set[str], claims: Callable[[dict], bool]
+    ) -> str | None:
+        """The name of a coded page already in `folder` that `claims` says is this item's, or None."""
+        for key in keys:
+            for name in _code_names(base, key, counted=False):
+                if name in taken or not os.path.lexists(self.out / folder / f"{name}.md"):
+                    continue
+                fm = front_matter(self.out / folder / f"{name}.md")
+                if fm is not None and claims(fm):
+                    return name
+        return None
 
     # ---- writing ----------------------------------------------------------------------
 
