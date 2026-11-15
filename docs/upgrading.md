@@ -20,7 +20,7 @@ Back up both folders (they are plain files): `tar czf homelabscribe-backup.tgz h
 
 ## Damaged files are skipped
 
-A page, snapshot or `changelog.json` that cannot be read is now left as it is and printed as `skipped: <path> (<reason>)` instead of stopping the run with an error. Run with `--strict` if your scheduler should treat that as a failure (exit status 1, docs still written). A damaged `changelog.json` is moved to `changelog.json.damaged` next to it and a new one is started: delete the `.damaged` file when you no longer need it. Temporary files named `.<random>.hls-tmp` can appear next to a file while it is being written; a run killed at that moment can leave one behind, and it is safe to delete.
+A page, snapshot or `changelog.json` that cannot be read is now left as it is and printed as `skipped: <path> (<reason>)` instead of stopping the run with an error. The same goes for an old page with notes that cannot be moved to `archive/`: it stays, with its notes, and the run goes on. Run with `--strict` if your scheduler should treat that as a failure (exit status 1, docs still written); `--strict` now also fails when the HTML copy skipped a page. A damaged `changelog.json` is moved to `changelog.json.damaged` next to it and a new one is started (if the move is not possible, the damaged file stays and no new changelog is written until you remove it): delete the `.damaged` file when you no longer need it. Temporary files named `.<random>.hls-tmp` can appear next to a file while it is being written; a run killed at that moment can leave one behind, and it is safe to delete. A `services/` or `hosts/` folder that is a link to another folder keeps working as before.
 
 ## Default output folder changed
 
