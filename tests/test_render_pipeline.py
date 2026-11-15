@@ -685,6 +685,17 @@ def test_an_error_that_ends_the_run_leaves_no_empty_copy(tmp_path, monkeypatch):
     assert (tmp_path / "services" / "plex.md").exists() and (tmp_path / "services" / "a-beta.md").exists()
 
 
+def test_a_page_that_is_no_longer_utf8_when_it_is_copied_is_copied_as_it_is(tmp_path, monkeypatch):
+    def save_as_latin1():  # as if saved in another encoding after the old-page clean-up read it as UTF-8
+        page = tmp_path / "services" / "plex.md"
+        page.write_bytes(page.read_text().replace("Notes on services/plex.md.", "Café").encode("latin-1"))
+        monkeypatch.setattr(Renderer, "_read", staticmethod(lambda path: path.read_bytes().decode("latin-1")))
+
+    data = _remove(tmp_path, ["services/plex.md"], services=["plex"], before=save_as_latin1)
+    assert b"Caf\xe9" in data["services/plex.md"]
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == data["services/plex.md"]
+
+
 def test_the_demo_lab_archived_has_no_dead_links(tmp_path):
     snap = _snap()
     Renderer(tmp_path).render(snap)
