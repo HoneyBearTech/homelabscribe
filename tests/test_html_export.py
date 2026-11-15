@@ -405,6 +405,16 @@ def test_h6_an_image_that_is_not_relative_is_shown_as_its_alternative_text(addre
     assert not page.all("img") and "the rack photo" in "".join(page.text)
 
 
+@pytest.mark.parametrize("address", ["/any/path.png", "/", "/photos/rack.png?x=1", "/../x.png"])
+def test_h6_an_image_that_starts_with_a_slash_is_shown_as_its_alternative_text(address):
+    page = Page(htmlsite.page_html(f"![the rack]({address})\n"))
+    assert not page.all("img") and "the rack" in "".join(page.text)
+
+
+def test_h6_a_link_to_an_address_that_starts_with_a_slash_stays_a_link():
+    assert {"href": "/x"} in Page(htmlsite.page_html("[x](/x)\n")).all("a")
+
+
 def test_h6_a_relative_image_stays_an_image():
     page = Page(htmlsite.page_html('![rack](photos/rack.png "The rack")\n', "services/plex.md"))
     assert page.all("img") == [{"src": "photos/rack.png", "alt": "rack", "title": "The rack"}]
@@ -628,6 +638,100 @@ def test_h10_the_command_prints_a_skipped_line_and_goes_on(config, tmp_path):
     ]
     assert (html / "index.html").read_text() == "<h1>My own start page</h1>"
     assert (html / "services" / "sonarr.html").is_file()
+
+
+def _changed_plex(tmp_path):
+    out, html, _ = _site(tmp_path)
+    page = out / "services" / "plex.md"
+    page.write_text(page.read_text().replace(notes.PLACEHOLDER, "Renews in May."))
+    return out, html, html / "services" / "plex.html"
+
+
+def _leftovers(html: Path) -> list[Path]:
+    return [p for p in html.rglob("*") if p.name.endswith(htmlsite.TEMP_SUFFIX)]
+
+
+def test_h10_a_hard_linked_copy_outside_html_dir_keeps_its_content(tmp_path):
+    out, html, plex = _changed_plex(tmp_path)
+    copy = tmp_path / "backup" / "plex.html"
+    copy.parent.mkdir()
+    os.link(plex, copy)
+    old = copy.read_bytes()
+    result = htmlsite.export(out, html, _render(out).generated)
+    assert result.changed == [plex] and result.skipped == []
+    assert copy.read_bytes() == old and b"Renews in May." not in old
+    assert b"Renews in May." in plex.read_bytes() and plex.stat().st_nlink == 1
+    assert not _leftovers(html)
+
+
+def test_h10_a_failed_write_of_a_replacement_leaves_the_old_file_and_no_temporary_file(tmp_path, monkeypatch):
+    out, html, plex = _changed_plex(tmp_path)
+    old = plex.read_bytes()
+
+    def partial(fd, data):
+        os.write(fd, data[:40])
+        os.close(fd)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(htmlsite, "_write", partial)
+    result = htmlsite.export(out, html, _render(out).generated)
+    assert plex.read_bytes() == old and not _leftovers(html)
+    assert result.skipped == ["services/plex.html (the file there could not be written)"]
+    assert plex not in result.changed
+
+
+def test_h10_a_failed_replace_leaves_the_old_file_and_no_temporary_file(tmp_path, monkeypatch):
+    out, html, plex = _changed_plex(tmp_path)
+    old = plex.read_bytes()
+
+    def refuse(src, dst):
+        raise PermissionError("no")
+
+    monkeypatch.setattr(htmlsite.os, "replace", refuse)
+    result = htmlsite.export(out, html, _render(out).generated)
+    assert plex.read_bytes() == old and not _leftovers(html)
+    assert len(result.skipped) == 1 and result.skipped[0].startswith("services/plex.html")
+
+
+@pytest.mark.parametrize("fails", ["write", "close"])
+def test_h10_a_failed_write_of_a_new_file_leaves_no_file(tmp_path, monkeypatch, fails):
+    out, html, plex = _changed_plex(tmp_path)
+    plex.unlink()  # a file that does not exist yet
+    real = htmlsite._write
+
+    def failing(fd, data):
+        if fails == "write":
+            os.close(fd)
+            raise OSError("disk full")
+        real(fd, data)  # the data is written and closed; the error only comes after, as at close
+        raise OSError("close failed")
+
+    monkeypatch.setattr(htmlsite, "_write", failing)
+    result = htmlsite.export(out, html, _render(out).generated)
+    assert not plex.exists() and not _leftovers(html)
+    assert result.skipped == ["services/plex.html (the file there could not be written)"]
+    monkeypatch.undo()
+    assert htmlsite.export(out, html, _render(out).generated).changed == [plex]  # it comes back next run
+
+
+def test_h10_a_leftover_temporary_file_of_the_export_is_removed_and_a_users_file_is_not(tmp_path):
+    out, html, plex = _changed_plex(tmp_path)
+    ours = html / "services" / f".plex.html.0123abcd{htmlsite.TEMP_SUFFIX}"
+    ours.write_bytes(plex.read_bytes()[:200])  # cut short, but it starts with the generator
+    plain = {
+        html / f"index.html{htmlsite.TEMP_SUFFIX}": "not ours",  # similar name, no generator start
+        html / f"mine{htmlsite.TEMP_SUFFIX}": htmlsite.OWNED_LINE,  # the line, but not at the start
+    }
+    for path, text in plain.items():
+        path.write_text(text)
+    link = html / f"link{htmlsite.TEMP_SUFFIX}"
+    link.symlink_to(plex)  # a link to a file of ours is a link, not the export's own file
+    result = htmlsite.export(out, html, _render(out).generated)
+    assert not ours.exists()
+    assert all(path.read_text() == text for path, text in plain.items())
+    assert link.is_symlink() and plex.is_file()
+    assert ours not in result.changed and result.pages == 21
+    assert not any(p.name.endswith(".html") and p.name.startswith(".") for p in html.rglob("*"))
 
 
 # ---- H11 and H12: free, and nothing else touched ----------------------------------------------
