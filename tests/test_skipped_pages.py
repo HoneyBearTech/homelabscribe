@@ -94,16 +94,31 @@ def test_a_link_in_the_place_of_a_page_is_never_written_through(tmp_path):
 
 
 @POSIX
-def test_a_linked_folder_is_not_written_into(tmp_path):
-    outside = tmp_path / "elsewhere"
-    outside.mkdir()
+def test_a_folder_that_links_to_a_folder_is_followed_as_before(tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "gone.md").write_text("no notes")
     out = tmp_path / "docs"
     out.mkdir()
-    (out / "services").symlink_to(outside)
+    (out / "services").symlink_to(elsewhere)
     r = _run(out, _snap())
-    assert list(outside.iterdir()) == []
-    assert any("services/" in line and "symbolic link" in line for line in r.skipped)
-    assert (out / "index.md").exists()
+    assert (elsewhere / "sonarr.md").exists() and r.skipped == []
+    assert not (elsewhere / "gone.md").exists()  # swept like any page in the folder
+
+
+@POSIX
+@pytest.mark.parametrize("kind", ["dangling", "file"])
+def test_a_folder_link_that_leads_nowhere_reports_its_pages(tmp_path, kind):
+    out = tmp_path / "docs"
+    out.mkdir()
+    target = tmp_path / "target"
+    if kind == "file":
+        target.write_text("not a folder")
+    (out / "services").symlink_to(target)
+    r = _run(out, _snap())
+    assert any(line.startswith("services/sonarr.md (could not be written") for line in r.skipped)
+    assert (out / "index.md").exists() and (out / "hosts" / "nova.md").exists()
+    assert not target.is_dir()
 
 
 def test_a_folder_named_like_a_page_is_left_alone(tmp_path):
@@ -241,14 +256,16 @@ def test_a_stray_page_in_a_read_only_folder_stays(tmp_path):
     assert stray.exists() and "services/stray.md (could not be removed, left as it is)" in r.skipped
 
 
-def test_an_archive_folder_that_is_a_file_raises_and_keeps_the_page(tmp_path):
+def test_an_archive_folder_that_is_a_file_is_reported_and_keeps_the_page(tmp_path):
     snap, page = _lab(tmp_path)
     before = page.read_bytes()
     (tmp_path / "archive").mkdir()
     (tmp_path / "archive" / "services").write_text("in the way")
-    with pytest.raises(OSError):
-        Renderer(tmp_path, licensing.PRO_FEATURES).render(_gone(snap), [], None)
+    r = Renderer(tmp_path, licensing.PRO_FEATURES)
+    r.render(_gone(snap), [], None)
     assert page.read_bytes() == before
+    assert "services/plex.md (could not be archived, left as it is)" in r.skipped
+    assert (tmp_path / "archive" / "services").read_text() == "in the way"
 
 
 def test_leftover_temp_files_are_not_swept_or_exported(tmp_path):
@@ -271,3 +288,46 @@ def test_unusable_changelog_entries_are_skipped_and_reported(tmp_path):
     text = (tmp_path / "CHANGELOG.md").read_text()
     assert "**Added** Plex: d" in text
     assert r.skipped == ["changelog.json (4 entry(ies) not usable, left in the file)"]
+
+
+@pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+def test_utf16_without_a_byte_order_mark_is_left_alone_with_its_notes(tmp_path, codec):
+    snap, page = _lab(tmp_path)
+    page.write_bytes(page.read_text().encode(codec))
+    before = page.read_bytes()
+    r = _run(tmp_path, snap)
+    assert page.read_bytes() == before
+    assert "services/plex.md (not UTF-8, left as it is)" in r.skipped
+
+
+@pytest.mark.parametrize("codec", ["utf-16-le", "utf-16-be"])
+def test_an_obsolete_utf16_page_is_not_deleted_or_archived(tmp_path, codec):
+    snap, page = _lab(tmp_path)
+    page.write_bytes(page.read_text().encode(codec))
+    before = page.read_bytes()
+    r = Renderer(tmp_path, licensing.PRO_FEATURES)
+    r.render(_gone(snap), [], None)
+    assert page.read_bytes() == before and not (tmp_path / "archive").exists()
+    assert "services/plex.md (not UTF-8, left as it is)" in r.skipped
+
+
+@POSIX
+def test_a_pipe_in_place_of_a_page_is_never_opened(tmp_path):
+    snap, page = _lab(tmp_path)
+    page.unlink()
+    os.mkfifo(page)
+    os.mkfifo(tmp_path / "services" / "stray.md")
+    r = _run(tmp_path, snap)
+    assert page.exists() and (tmp_path / "services" / "stray.md").exists()
+    assert "services/plex.md (not a regular file, left alone)" in r.skipped
+    assert "services/stray.md (could not be read, left as it is)" in r.skipped
+
+
+def test_a_date_that_cannot_be_shown_in_local_time_is_skipped_not_fatal(tmp_path):
+    entries = [
+        {"at": "0001-01-01T00:00:00+14:00", "changes": []},
+        {"at": "9999-12-31T23:59:59-14:00", "changes": []},
+    ]
+    r = Renderer(tmp_path, licensing.PRO_FEATURES)
+    r.render(_snap(), entries, None)
+    assert r.skipped == ["changelog.json (2 entry(ies) not usable, left in the file)"]

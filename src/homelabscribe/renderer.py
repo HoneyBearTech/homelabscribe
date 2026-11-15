@@ -344,9 +344,10 @@ class Renderer:
         self.written.append(path)
 
     def _write_problem(self, path: Path) -> str | None:
-        """Why nothing may be written to `path`: its folder or the page is a link, a folder or not a file."""
-        if path.parent != self.out and path.parent.is_symlink():
-            return "the folder is a symbolic link, left alone"
+        """Why nothing may be written to `path`: the page itself is a link, a folder or not a plain file.
+
+        A folder that is a link to a folder is the user's own setup and is followed.
+        """
         if path.is_symlink():
             return "the page is a symbolic link, left alone"
         if os.path.lexists(path) and not path.is_file():
@@ -363,7 +364,7 @@ class Renderer:
         A page that cannot be read or is not UTF-8 is never deleted or archived: it is left as it is.
         """
         d = self.out / folder
-        if not d.is_dir() or d.is_symlink():
+        if not d.is_dir():
             return
         for f in sorted(d.glob("*.md")):
             if f in self.generated:
@@ -378,9 +379,12 @@ class Renderer:
                 continue
             if kept and kept.strip() != notes.PLACEHOLDER:
                 dest = self.out / "archive" / folder
-                # A failure here (no room, no permission) is raised: the page stays, nothing is half-copied.
-                dest.mkdir(parents=True, exist_ok=True)
-                archived = _archive(f, dest)
+                try:
+                    dest.mkdir(parents=True, exist_ok=True)
+                    archived = _archive(f, dest)
+                except OSError:  # no room, no permission, no folder: the page and its notes stay
+                    self._skip(f, "could not be archived, left as it is")
+                    continue
                 if archived is None:  # saved while it was copied: left as it is, for the next run
                     continue
             else:

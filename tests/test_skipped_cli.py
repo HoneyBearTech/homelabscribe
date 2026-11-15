@@ -7,6 +7,7 @@ import pytest
 from test_collectors import FakeDockerClient
 from typer.testing import CliRunner
 
+from homelabscribe import notes
 from homelabscribe.cli import app
 from homelabscribe.collectors import docker as docker_collector
 
@@ -123,3 +124,44 @@ def test_scan_moves_a_damaged_changelog_aside(config, tmp_path):
     assert result.exit_code == 1 and "skipped: changelog.json (damaged" in result.output
     assert (tmp_path / "state" / "changelog.json.damaged").read_text() == "[{"
     assert (tmp_path / "state" / "changelog.json").read_text().startswith("[")
+
+
+def test_a_page_that_cannot_be_archived_is_reported_and_the_run_goes_on(config, tmp_path):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    page = tmp_path / "docs" / "services" / "old.md"
+    page.write_text(f"x\n{notes.START}\nMy notes\n{notes.END}\n")
+    (tmp_path / "docs" / "archive").mkdir()
+    (tmp_path / "docs" / "archive" / "services").write_text("in the way")
+    (tmp_path / "docs" / "index.md").write_text("changed\n")
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert "skipped: services/old.md (could not be archived, left as it is)" in result.output
+    assert "My notes" in page.read_text() and "Traceback" not in result.output
+    assert "HTML file(s)" in result.output
+    strict = runner.invoke(app, ["run", "-c", str(config), "--strict"])
+    assert strict.exit_code == 1 and "HTML file(s)" in strict.output
+
+
+def test_strict_fails_on_a_page_only_the_html_export_skipped(config, tmp_path):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    mine = tmp_path / "html" / "services" / "sonarr.html"
+    mine.write_text("a page the user wrote")  # not one of ours, so the export leaves it
+    plain = runner.invoke(app, ["run", "-c", str(config)])
+    assert plain.exit_code == 0 and "skipped: services/sonarr.html" in plain.output
+    strict = runner.invoke(app, ["run", "-c", str(config), "--strict"])
+    assert strict.exit_code == 1 and mine.read_text() == "a page the user wrote"
+
+
+def test_a_changelog_that_cannot_be_moved_aside_is_not_written_over(config, tmp_path):
+    assert runner.invoke(app, ["scan", "-c", str(config)]).exit_code == 0
+    state = tmp_path / "state"
+    (state / "changelog.json").write_text("[{")
+    for name in ["changelog.json.damaged", *(f"changelog.json.damaged-{n}" for n in range(2, 1000))]:
+        (state / name).write_text("older")
+    (snap,) = (state / "snapshots").glob("*.json")
+    data = json.loads(snap.read_text())
+    data["services"] = []
+    snap.write_text(json.dumps(data))
+    result = runner.invoke(app, ["scan", "-c", str(config)])
+    assert result.exit_code == 0 and "skipped: changelog.json (damaged" in result.output
+    assert (state / "changelog.json").read_text() == "[{"

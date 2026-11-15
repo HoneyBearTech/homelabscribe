@@ -59,6 +59,10 @@ def _report_rendered(rendered: pipeline.Rendered, cfg: Config) -> None:
         typer.echo(f"Updated {len(rendered.html.changed)} HTML file(s) in {cfg.html_dir}.")
 
 
+def _skipped(rendered: pipeline.Rendered) -> bool:
+    return bool(rendered.skipped or (rendered.html and rendered.html.skipped))
+
+
 def _scan(cfg: Config, feats: frozenset[str]) -> pipeline.ScanResult:
     try:
         return pipeline.scan(cfg, feats)
@@ -72,12 +76,6 @@ def _render(cfg: Config, feats: frozenset[str], snapshot=None) -> pipeline.Rende
         return pipeline.render_pages(cfg, feats, snapshot)
     except RuntimeError as e:  # no snapshot to render
         typer.secho(f"error: {e}", fg="red")
-        raise typer.Exit(1) from e
-    except OSError as e:  # an old page that holds notes could not be archived: it stays where it is
-        typer.secho(
-            f"error: a page with notes could not be archived ({type(e).__name__}); it was left as it is.",
-            fg="red",
-        )
         raise typer.Exit(1) from e
 
 
@@ -149,7 +147,7 @@ def run(
         rendered = _render(cfg, feats, result.snapshot)
         _report_rendered(rendered, cfg)
         if not every:
-            if strict and (result.errors or result.file_skips or rendered.skipped):
+            if strict and (result.errors or result.file_skips or _skipped(rendered)):
                 raise typer.Exit(1)
             break
         time.sleep(_interval(every))

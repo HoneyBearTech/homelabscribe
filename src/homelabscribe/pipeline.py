@@ -172,12 +172,18 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
     if previous:
         diff = compare(previous, snap)
         if not diff.empty:
-            log = store.load_changelog(cfg.state_dir, file_skips)
-            log.append({"at": snap.taken_at.isoformat(), "changes": [c.model_dump() for c in diff.changes]})
             try:
-                store.save_changelog(log, cfg.state_dir)
-            except OSError:
-                file_skips.append("changelog.json (could not be written, left as it is)")
+                log = store.load_changelog(cfg.state_dir, file_skips)
+            except store.ChangelogBlocked:  # the damaged file stays as it is; nothing is written over it
+                log = None
+            if log is not None:
+                log.append(
+                    {"at": snap.taken_at.isoformat(), "changes": [c.model_dump() for c in diff.changes]}
+                )
+                try:
+                    store.save_changelog(log, cfg.state_dir)
+                except OSError:
+                    file_skips.append("changelog.json (could not be written, left as it is)")
     return ScanResult(snapshot=snap, diff=diff, skipped=skipped, errors=errors, file_skips=file_skips)
 
 
@@ -215,7 +221,11 @@ def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | Non
     # The names of the critical services are compared with the cleaned names in the snapshot.
     critical = [without_surrogates_or_markers(n) for n in cfg.breakglass.critical]
     breakglass = cfg.breakglass.model_copy(update={"critical": critical})
-    written = r.render(snapshot, store.load_changelog(cfg.state_dir, skipped), breakglass)
+    try:
+        changelog = store.load_changelog(cfg.state_dir, skipped)
+    except store.ChangelogBlocked:
+        changelog = []
+    written = r.render(snapshot, changelog, breakglass)
     html = htmlsite.export(cfg.output_dir, cfg.html_dir, r.generated) if cfg.html_dir is not None else None
     return Rendered(written=written, html=html, skipped=skipped + r.skipped)
 
