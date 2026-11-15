@@ -1046,14 +1046,33 @@ def test_h5_a_quoted_value_up_to_the_limit_is_still_decoded():
     assert htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n")[0] == value[1:-1]
 
 
-def test_h5_an_over_long_quoted_value_is_not_parsed(monkeypatch):
-    def boom(*args, **kwargs):
-        raise AssertionError("parsed")
+def _record_parser_calls(monkeypatch) -> list[str]:
+    """Wrap the YAML parser the title uses; each call is recorded and then goes to the real one."""
+    calls: list[str] = []
+    real = htmlsite.yaml.compose
 
-    monkeypatch.setattr(htmlsite.yaml, "compose", boom)
-    monkeypatch.setattr(htmlsite.yaml, "safe_load", boom)
+    def recording(value, *args, **kwargs):
+        calls.append(value)
+        return real(value, *args, **kwargs)
+
+    monkeypatch.setattr(htmlsite.yaml, "compose", recording)
+    return calls
+
+
+def test_h5_an_over_long_quoted_value_is_not_parsed(monkeypatch):
+    calls = _record_parser_calls(monkeypatch)
     value = '"' + "a" * htmlsite._MAX_QUOTED_TITLE + '"'
-    assert htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n")[0] == value
+    title, _ = htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n")
+    assert calls == []
+    assert title == value
+
+
+def test_h5_a_quoted_value_within_the_limit_is_parsed_exactly_once(monkeypatch):
+    calls = _record_parser_calls(monkeypatch)
+    value = '"' + "a" * (htmlsite._MAX_QUOTED_TITLE - 2) + '"'
+    title, _ = htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n")
+    assert calls == [value]
+    assert title == value[1:-1]
 
 
 def test_h5_a_page_titled_with_a_lone_surrogate_escape_does_not_stop_the_export(tmp_path):
