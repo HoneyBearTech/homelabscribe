@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +44,73 @@ DNS_IMAGES = frozenset({"pihole", "pi-hole", "adguardhome"})  # exact image name
 def slug(text: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return s or "item"
+
+
+def tag_text(category: str) -> str:
+    """A category as a tag: lower case, letters and digits of any language (with their combining marks)
+    and `_`, `-` and `/` kept, every run of other characters one hyphen, hyphens and slashes at the
+    start and end removed, and `item` when nothing is left.
+    """
+    kept = "".join(
+        c if c.isalnum() or c in "_-/" or unicodedata.category(c)[0] == "M" else "\0"
+        for c in str(category).lower()
+    )
+    tag = re.sub(r"\0+", "-", kept).strip("-/")
+    return tag or "item"
+
+
+# Words a YAML 1.1 reader (PyYAML) or a 1.2 reader turns into a boolean or null, in any letter case.
+_YAML_WORDS = frozenset({"true", "false", "yes", "no", "on", "off", "y", "n", "null", "~"})
+_PLAIN_ASCII = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-/:@+()")
+
+
+def _plain_ok(text: str) -> bool:
+    """True when the text is clearly a string to a YAML 1.1 and a 1.2 reader, as a plain scalar.
+
+    A conservative allow-list: starts with a letter, holds only letters, digits and a few harmless
+    punctuation marks (no commas, brackets, quotes, `#`, `&`, `*`, `!`, `|`, `>`, `%`, `?`, `=`),
+    no `: ` and no trailing `:`, no leading or trailing space, and is not a boolean or null word.
+    """
+    if not text or not text[0].isalpha() or text[0] == " " or text[-1] in " :":
+        return False
+    if text.lower() in _YAML_WORDS or ": " in text:
+        return False
+    return all(c in _PLAIN_ASCII or (not c.isascii() and unicodedata.category(c)[0] in "LMN") for c in text)
+
+
+_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t", "\0": "\\0"}
+_NOT_RAW = frozenset("\u2028\u2029\ufeff\ufffe\uffff")
+
+
+def _escape_char(c: str) -> str:
+    if c in _ESCAPES:
+        return _ESCAPES[c]
+    n = ord(c)
+    printable = 0x20 <= n <= 0x7E or 0xA0 <= n <= 0xD7FF or 0xE000 <= n or n >= 0x10000
+    if printable and c not in _NOT_RAW:
+        return c
+    if n <= 0xFF:
+        return f"\\x{n:02X}"
+    return f"\\u{n:04X}" if n <= 0xFFFF else f"\\U{n:08X}"
+
+
+_SURROGATES = re.compile("[\ud800-\udfff]")
+
+
+def yaml_text(value: object) -> str:
+    """A text as a one-line YAML scalar that every YAML reader reads back as exactly the same str.
+
+    Ordinary text stays plain, so existing pages do not change. Anything else is written as a
+    double-quoted scalar with escapes for line breaks, quotes, backslashes, control characters and the
+    characters YAML does not allow raw or treats as line breaks. A lone surrogate cannot be part of a
+    text file, so U+FFFD (the replacement character) is written in its place; every other text reads
+    back as exactly the same str.
+    """
+    text = value if isinstance(value, str) else str(value)
+    text = _SURROGATES.sub("\ufffd", text)
+    if _plain_ok(text):
+        return text
+    return '"' + "".join(_escape_char(c) for c in text) + '"'
 
 
 # Variables every image sets for itself; listing them buries the ones the user actually configured.
@@ -87,6 +155,8 @@ class Renderer:
             autoescape=False,
         )
         self.env.filters["code_list"] = code_list
+        self.env.filters["yaml_text"] = yaml_text
+        self.env.filters["tag_text"] = tag_text
         self.env.filters["config_vars"] = config_vars
         self.written: list[Path] = []
         self.generated: set[Path] = set()

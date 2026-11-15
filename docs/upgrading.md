@@ -21,3 +21,7 @@ Back up both folders (they are plain files): `tar czf homelabscribe-backup.tgz h
 ## Default output folder changed
 
 Newer versions default to `homelabscribe-docs/` instead of `docs/`. If you relied on the old default, set `output_dir: docs` in your config or move the folder.
+
+## Front matter is quoted when it needs it
+
+Generated pages now quote a `title`, `host`, `category`, `status` or `image` in the front matter when plain text would not be read back as the same text (for example `Media: TV`, `123`, `true` or a value with a line break). A page where one of these needed quoting is rewritten once on the next run; every other page is unchanged. The second tag of a service page is the category as a tag. Letters and digits of any language (and their combining marks), `_`, `-` and `/` are kept in lower case, every run of other characters becomes one hyphen, and hyphens and slashes at the start and end are dropped (`item` if nothing is left), so a custom category's tag changes only when it held other characters, or several spaces in a row. The tags of the built-in categories do not change.

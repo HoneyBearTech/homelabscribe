@@ -6,7 +6,10 @@ secret values and must either return a result or fail with a narrow, expected er
 
 from __future__ import annotations
 
+import re
+
 import pytest
+import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -16,6 +19,7 @@ from homelabscribe.collectors.docker import parse_container, parse_depends_on, p
 from homelabscribe.collectors.proxmox import parse_guest
 from homelabscribe.htmlsite import page_html
 from homelabscribe.redact import clean_labels, env_names
+from homelabscribe.renderer import tag_text, yaml_text
 
 text = st.text(max_size=40)
 json_scalar = st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | text
@@ -226,3 +230,32 @@ def test_html_page_carries_no_markup_from_the_page_text(source, rel):
         if "src" in attrs:
             assert scheme_and_host(attrs["src"] or "") == ("", "")
             assert not (attrs["src"] or "").replace("\\", "/").startswith("/")
+
+
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+LOADERS = [yaml.SafeLoader] + ([yaml.CSafeLoader] if yaml.__with_libyaml__ else [])
+any_text = st.text(alphabet=st.characters(codec=None), max_size=40)
+
+
+@PROFILE
+@given(any_text)
+def test_front_matter_value_is_one_line_and_reads_back_as_the_same_text(value):
+    """The text is written on one line and read back unchanged; a lone surrogate, which cannot be part of
+    a text file, comes back as U+FFFD. PyYAML's pure-Python and libyaml loaders agree.
+    """
+    out = yaml_text(value)
+    want = _LONE_SURROGATE.sub("\ufffd", value)
+    assert len(out.splitlines()) == 1 and "\n" not in out and "\r" not in out
+    out.encode("utf-8")  # writable to a file
+    for loader in LOADERS:
+        assert yaml.load(f"key: {out}", Loader=loader) == {"key": want}
+        assert yaml.load(f"[a, {out}]", Loader=loader) == ["a", want]
+
+
+@PROFILE
+@given(any_text)
+def test_front_matter_tag_reads_back_as_the_same_text_in_the_tags_list(category):
+    tag = tag_text(category)
+    assert tag and not _LONE_SURROGATE.search(tag)
+    for loader in LOADERS:
+        assert yaml.load(f"tags: [homelab, {yaml_text(tag)}]", Loader=loader) == {"tags": ["homelab", tag]}
