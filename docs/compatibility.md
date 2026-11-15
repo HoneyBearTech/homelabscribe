@@ -37,6 +37,7 @@ These may change in any release, also after 1.0:
 - The wording and layout inside a generated page.
 - The built-in catalog: its names, descriptions and categories. A page can therefore get a new name when its app is renamed in the catalog; the changelog will say so.
 - The files inside the bug-report bundle (`doctor --bundle`) and what they hold.
+- The markup and styling of the static HTML copy (`html_dir`).
 - The inner format of the snapshot and changelog files.
 - What the commands print for people to read.
 - The Python modules. There is no Python API.
