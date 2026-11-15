@@ -334,16 +334,17 @@ def _place(root: Path, rel: PurePosixPath, data: bytes) -> str:
     # outside `html_dir`, and a write cut short would leave a file that no longer starts with our line. A
     # file of ours is replaced by a new file made beside it; a new file is only ever created, so a link or
     # a file that appeared there in the meantime is not written to either.
-    target = dest
+    target, mode = dest, None
     try:
         if replace:
+            mode = os.lstat(dest).st_mode & 0o777  # the new file keeps the permissions of the one it replaces
             target = folder / f".{rel.name}.{secrets.token_hex(8)}{TEMP_SUFFIX}"
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NO_FOLLOW, 0o666)
     except OSError:
         return "the file there could not be written"
     done = False
     try:
-        _write(fd, data)
+        _write(fd, data, mode)
         if replace:
             os.replace(target, dest)
         done = True
@@ -356,14 +357,16 @@ def _place(root: Path, rel: PurePosixPath, data: bytes) -> str:
     return "written" if done else "the file there could not be written"
 
 
-def _write(fd: int, data: bytes) -> None:
-    """Write all of `data` to the open file and close it."""
+def _write(fd: int, data: bytes, mode: int | None = None) -> None:
+    """Write all of `data` to the open file, with the permission bits `mode` if given, and close it."""
     try:
         f = os.fdopen(fd, "wb")
     except BaseException:
         os.close(fd)
         raise
     with f:
+        if mode is not None and hasattr(os, "fchmod"):
+            os.fchmod(f.fileno(), mode)
         f.write(data)
 
 

@@ -687,11 +687,23 @@ def test_h10_a_hard_linked_copy_outside_html_dir_keeps_its_content(tmp_path):
     assert not _leftovers(html)
 
 
+@pytest.mark.skipif(not hasattr(os, "fchmod") or sys.platform == "win32", reason="no permission bits here")
+def test_h10_a_replaced_file_keeps_the_permissions_of_the_file_it_replaces(tmp_path):
+    out, html, plex = _changed_plex(tmp_path)
+    plex.chmod(0o600)
+    other = html / "index.html"
+    other.chmod(0o640)
+    result = htmlsite.export(out, html, _render(out).generated)
+    assert result.changed == [plex] and b"Renews in May." in plex.read_bytes()
+    assert plex.stat().st_mode & 0o777 == 0o600 and other.stat().st_mode & 0o777 == 0o640
+    assert not _leftovers(html)
+
+
 def test_h10_a_failed_write_of_a_replacement_leaves_the_old_file_and_no_temporary_file(tmp_path, monkeypatch):
     out, html, plex = _changed_plex(tmp_path)
     old = plex.read_bytes()
 
-    def partial(fd, data):
+    def partial(fd, data, mode=None):
         os.write(fd, data[:40])
         os.close(fd)
         raise OSError("disk full")
@@ -722,11 +734,11 @@ def test_h10_a_failed_write_of_a_new_file_leaves_no_file(tmp_path, monkeypatch, 
     plex.unlink()  # a file that does not exist yet
     real = htmlsite._write
 
-    def failing(fd, data):
+    def failing(fd, data, mode=None):
         if fails == "write":
             os.close(fd)
             raise OSError("disk full")
-        real(fd, data)  # the data is written and closed; the error only comes after, as at close
+        real(fd, data, mode)  # the data is written and closed; the error only comes after, as at close
         raise OSError("close failed")
 
     monkeypatch.setattr(htmlsite, "_write", failing)
