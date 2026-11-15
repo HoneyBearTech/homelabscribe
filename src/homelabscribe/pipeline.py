@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from homelabscribe import htmlsite, manual, store
+from homelabscribe import htmlsite, manual, notes, store
 from homelabscribe.collectors.docker import DockerCollector
 from homelabscribe.collectors.npm import NpmCollector
 from homelabscribe.collectors.proxmox import ProxmoxCollector
@@ -13,7 +13,7 @@ from homelabscribe.config import Config
 from homelabscribe.diff import Diff, compare
 from homelabscribe.enrich import enrich, link_guests, link_routes, load_catalog
 from homelabscribe.models import Host, Service, Snapshot
-from homelabscribe.renderer import Renderer
+from homelabscribe.renderer import Renderer, replace_surrogates
 
 
 @dataclass
@@ -39,17 +39,62 @@ def _reason(e: Exception) -> str:
 
 
 def _carry_over(previous: Snapshot, collector, snap: Snapshot) -> tuple[list[Host], list[Service]]:
-    """The last known hosts and services of a source that just failed, if we can tell which they were."""
+    """The last known hosts and services of a source that just failed, if we can tell which they were.
+
+    `previous` is cleaned, so names from the config and from the new scan are compared in their cleaned form.
+    """
     if isinstance(collector, DockerCollector):
-        hosts = [h for h in previous.hosts if h.kind == "docker" and h.name == collector.cfg.name]
+        name = without_surrogates_or_markers(collector.cfg.name)
+        hosts = [h for h in previous.hosts if h.kind == "docker" and h.name == name]
     elif isinstance(collector, ProxmoxCollector):
         hosts = [h for h in previous.hosts if h.kind == "proxmox-node"]
     else:
         return [], []
-    present = {h.name for h in snap.hosts}
+    present = {without_surrogates_or_markers(h.name) for h in snap.hosts}
     hosts = [h for h in hosts if h.name not in present]
     names = {h.name for h in hosts}
     return hosts, [s for s in previous.services if s.host in names]
+
+
+_HARMLESS_TOKEN = "homelabscribe-notes:"  # what the notes-marker token in lab text becomes
+
+
+def without_surrogates_or_markers(text: str) -> str:
+    """The text with U+FFFD for every lone surrogate and without the token every notes marker needs.
+
+    Each `homelabscribe:notes:` becomes `homelabscribe-notes:`, so text from the lab cannot be taken for
+    the notes block of a page. One pass is enough: the replacement cannot form a new token.
+    """
+    return replace_surrogates(text).replace(notes.MARKER_TOKEN, _HARMLESS_TOKEN)
+
+
+def _value_without_surrogates_or_markers(value):
+    """`value` with every str in it, dict keys included, passed through `without_surrogates_or_markers`.
+
+    Lists, tuples, sets, frozensets and dicts are walked and given back as the same kind.
+    """
+    if isinstance(value, str):
+        return without_surrogates_or_markers(value)
+    if isinstance(value, list | tuple | set | frozenset):
+        kind = next(k for k in (list, tuple, set, frozenset) if isinstance(value, k))
+        return kind(_value_without_surrogates_or_markers(v) for v in value)
+    if isinstance(value, dict):
+        return {
+            _value_without_surrogates_or_markers(k): _value_without_surrogates_or_markers(v)
+            for k, v in value.items()
+        }
+    return value
+
+
+def snapshot_without_surrogates_or_markers(snap: Snapshot) -> Snapshot:
+    """A copy of the snapshot that can be saved and rendered: text read from a source may hold a lone
+    surrogate, or a notes marker.
+
+    The snapshot is turned into plain lists, dicts and values, cleaned, and read back into the models, so
+    every field of every model is covered, fields added later included.
+    Not covered: a snapshot passed to a Renderer or `render_pages`; entries in changelog.json are kept as is.
+    """
+    return Snapshot.model_validate(_value_without_surrogates_or_markers(snap.model_dump()))
 
 
 def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
@@ -70,7 +115,8 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
             collectors += [(f"Proxmox '{p.name}'", ProxmoxCollector(p)) for p in cfg.proxmox]
 
     last = store.recent(cfg.state_dir, 1)
-    previous = last[0] if last else None
+    # Cleaned as the new one is: older text cannot bring a marker in, and the cleaning is not a change.
+    previous = snapshot_without_surrogates_or_markers(last[0]) if last else None
 
     for label, collector in collectors:
         try:
@@ -87,7 +133,10 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         snap.services += services
 
     if cfg.manual_services:
-        manual_hosts, manual_services = manual.build(cfg.manual_services, {h.name for h in snap.hosts})
+        known = {h.name for h in snap.hosts}
+        cleaned = {without_surrogates_or_markers(n) for n in known}  # a host kept from `previous` is cleaned
+        known |= {e.host for e in cfg.manual_services if without_surrogates_or_markers(e.host) in cleaned}
+        manual_hosts, manual_services = manual.build(cfg.manual_services, known)
         snap.hosts += manual_hosts
         snap.services += manual_services
 
@@ -100,8 +149,10 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         except Exception as e:  # a proxy that is down shouldn't stop the scan
             errors.append(f"Nginx Proxy Manager '{proxy.name}': {type(e).__name__}")
             if previous:
-                snap.routes += [r for r in previous.routes if r.proxy == proxy.name]
+                name = without_surrogates_or_markers(proxy.name)  # `previous` is cleaned
+                snap.routes += [r for r in previous.routes if r.proxy == name]
     link_routes(snap.routes, snap.hosts, snap.services)
+    snap = snapshot_without_surrogates_or_markers(snap)
 
     store.save(snap, cfg.state_dir)
 
@@ -141,9 +192,12 @@ def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | Non
         latest = store.recent(cfg.state_dir, 1)
         if not latest:
             raise RuntimeError("No snapshot yet. Run `homelabscribe scan` first.")
-        snapshot = latest[0]
+        snapshot = snapshot_without_surrogates_or_markers(latest[0])  # it may have been saved uncleaned
     r = Renderer(cfg.output_dir, features)
-    written = r.render(snapshot, store.load_changelog(cfg.state_dir), cfg.breakglass)
+    # The names of the critical services are compared with the cleaned names in the snapshot.
+    critical = [without_surrogates_or_markers(n) for n in cfg.breakglass.critical]
+    breakglass = cfg.breakglass.model_copy(update={"critical": critical})
+    written = r.render(snapshot, store.load_changelog(cfg.state_dir), breakglass)
     html = htmlsite.export(cfg.output_dir, cfg.html_dir, r.generated) if cfg.html_dir is not None else None
     return Rendered(written=written, html=html)
 

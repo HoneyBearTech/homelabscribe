@@ -237,7 +237,7 @@ def test_h3_the_renderers_pages_and_archived_pages_are_exported_and_nothing_else
     assert {
         "index.html",
         "routes.html",  # the routes page
-        "CHANGELOG.html",  # the changelog page, which has no notes markers
+        "CHANGELOG.html",  # the changelog page
         "break-glass.html",
         "topology.html",  # the other Pro pages
         "hosts/nova.html",
@@ -246,7 +246,7 @@ def test_h3_the_renderers_pages_and_archived_pages_are_exported_and_nothing_else
     } <= exported
     generated = {p.relative_to(out).with_suffix(".html").as_posix() for p in renderer.generated}
     assert exported == generated | {"archive/services/plex.html"}
-    assert notes.START not in (out / "CHANGELOG.md").read_text()
+    assert notes.START in (out / "CHANGELOG.md").read_text()  # every page has a notes block
     assert "Plex pass renews in May." in (html / "archive" / "services" / "plex.html").read_text()
     assert result.pages == len(exported) and not result.skipped
     for name, text in foreign.items():

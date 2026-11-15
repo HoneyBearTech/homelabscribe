@@ -8,6 +8,7 @@ _Every scan is compared with the one before it. Newest first._
 
 {% if not entries %}
 No changes recorded yet. Changes appear after the second scan.
+
 {% endif %}
 {% for e in entries %}
 ## {{ e.when }}
@@ -17,3 +18,8 @@ No changes recorded yet. Changes appear after the second scan.
 {% endfor %}
 
 {% endfor %}
+## Notes
+
+<!-- homelabscribe:notes:start -->
+_Your notes go here. HomelabScribe never overwrites this section._
+<!-- homelabscribe:notes:end -->

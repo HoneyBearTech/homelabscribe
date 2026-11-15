@@ -73,3 +73,18 @@ def test_strict_fails_when_a_host_cannot_be_read(config, monkeypatch):
 def test_license_command_reports_free_without_a_key(config):
     result = runner.invoke(app, ["license", "-c", str(config)])
     assert result.exit_code == 0 and "free" in result.output.lower()
+
+
+@pytest.mark.parametrize("key", ["LS1.x.y", "LS1.\u00e9.\u00e9"])
+@pytest.mark.parametrize("command", ["doctor", "license"])
+def test_a_malformed_key_is_reported_as_free_edition(tmp_path, command, key):
+    config = tmp_path / "homelabscribe.yaml"  # no Docker host: `doctor` tries no connection
+    config.write_text(
+        f"output_dir: {tmp_path / 'docs'}\nstate_dir: {tmp_path / 'state'}\ndocker_hosts: []\n"
+        f'license_key: "{key}"\n',
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, [command, "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert result.exception is None and "Traceback" not in result.output
+    assert "Free edition (Malformed license key.)" in result.output

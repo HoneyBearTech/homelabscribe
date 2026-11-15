@@ -6,6 +6,7 @@ secret values and must either return a result or fail with a narrow, expected er
 
 from __future__ import annotations
 
+import base64
 import re
 
 import pytest
@@ -135,8 +136,68 @@ def test_notes_merge_keeps_markers_and_notes(body, mine):
     assert notes.extract(out) is not None
 
 
+notes_text = st.lists(
+    st.sampled_from([notes.START, notes.END, notes.PLACEHOLDER, "\n"]) | text, max_size=8
+).map("".join)
+
+
 @PROFILE
-@given(st.text(max_size=300))
+@given(notes_text, notes_text)
+def test_notes_merge_never_fails_and_keeps_real_notes(rendered, previous):
+    out = notes.merge(rendered, previous)
+    kept = notes.extract(previous)
+    if kept is not None and kept.strip() not in ("", notes.PLACEHOLDER):
+        assert kept in out
+
+
+def _block_as_the_templates_write_it(rendered: str) -> bool:
+    """True when the page has no notes block, or one that holds the placeholder as every template writes it.
+
+    A rendered block that holds anything else is filled in a different form when the page is merged with
+    itself (see the test below), which no template does; that case is kept apart from the stray markers.
+    """
+    head, start, rest = rendered.partition(notes.START)
+    body, end, _ = rest.partition(notes.END)
+    return not (start and end) or body == f"\n{notes.PLACEHOLDER}\n"
+
+
+@PROFILE
+@given(
+    (
+        notes_text
+        | st.tuples(notes_text, notes_text).map(
+            lambda ab: f"{ab[0]}{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}{ab[1]}"
+        )
+    ).filter(_block_as_the_templates_write_it),
+    notes_text,
+)
+def test_notes_merge_twice_gives_the_same_page(rendered, previous):
+    once = notes.merge(rendered, previous)
+    assert notes.merge(rendered, once) == once
+
+
+@pytest.mark.xfail(
+    strict=True, reason="a rendered block that is not the template's form is filled differently"
+)
+def test_notes_merge_twice_with_a_block_the_templates_never_write():
+    rendered = f"{notes.START}{notes.END}"  # no notes to keep, so the page is written as it is
+    once = notes.merge(rendered, "")
+    assert notes.merge(rendered, once) == once  # the second merge writes the block as START, "", END
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+license_keys = (
+    st.text(max_size=300)
+    | st.builds("LS1.{}.{}".format, st.text(max_size=60), st.text(max_size=60))
+    | st.builds("LS1.{}.{}".format, st.binary(max_size=120).map(_b64), st.binary(max_size=80).map(_b64))
+)
+
+
+@PROFILE
+@given(license_keys)
 def test_license_verify_rejects_garbage_cleanly(key):
     with pytest.raises(licensing.LicenseError):
         licensing.verify(key)

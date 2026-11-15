@@ -1,4 +1,5 @@
 import errno
+import hashlib
 import os
 import re
 import stat
@@ -642,3 +643,531 @@ def test_a_tag_reads_back_as_the_same_text_inside_the_tags_list(category):
     tag = tag_text(category)
     assert tag and tag == tag.strip("-/") and tag == tag.lower()
     assert yaml.safe_load(f"tags: [homelab, {yaml_text(tag)}]") == {"tags": ["homelab", tag]}
+
+
+# ---- the Pro changelog page keeps notes like every other page -----------------------------------
+
+
+def test_notes_on_the_changelog_page_survive_a_new_entry(tmp_path):
+    old, new = demo_snapshots()
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("old", FakeCollector(old))])
+    pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("new", FakeCollector(new))])
+    pipeline.render(cfg, licensing.PRO_FEATURES)
+    page = tmp_path / "docs" / "CHANGELOG.md"
+    _with_notes(page, "The big move to nova was in March.")
+
+    newer = new.model_copy(deep=True)
+    newer.services = [s for s in newer.services if s.name != "plex"]
+    pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("newer", FakeCollector(newer))])
+    pipeline.render(cfg, licensing.PRO_FEATURES)
+    text = page.read_text()
+    assert "The big move to nova was in March." in text
+    assert "- **Removed** Plex" in text
+    assert text.endswith(f"## Notes\n\n{notes.START}\nThe big move to nova was in March.\n{notes.END}\n")
+
+
+def test_a_changelog_page_from_before_the_notes_block_is_rewritten_with_it(tmp_path):
+    page = tmp_path / "CHANGELOG.md"
+    page.write_text("# What changed\n\nNo changes recorded yet. Changes appear after the second scan.\n")
+    Renderer(tmp_path, licensing.PRO_FEATURES).render(_snap(), [], None)
+    assert page.read_text().endswith(f"## Notes\n\n{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}\n")
+
+
+@pytest.mark.parametrize(
+    "rendered",
+    [
+        "# Page\n",
+        "# Page",
+        "",
+        f"# Page\n{notes.START}\nrest\n",
+        f"# Page\n{notes.END}\nrest\n",
+        f"# Page\n{notes.END}\n{notes.START}\n",
+    ],
+)
+def test_merge_keeps_the_notes_when_the_page_has_no_notes_block(rendered):
+    previous = f"# Old\n\n## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n"
+    out = notes.merge(rendered, previous)
+    page = rendered.replace(notes.START, "").replace(notes.END, "")  # stray markers are removed
+    assert out.startswith(page)
+    assert notes.extract(out[len(page) :]) == "Ask Jess."
+    assert out.endswith(f"## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n")
+    assert out.count(notes.START) == out.count(notes.END) == 1
+    assert not page or "\n\n## Notes" in out
+    if page == rendered:
+        assert "\n\n\n" not in out
+
+
+STRAY = [
+    f"# Page\n{notes.START}\nrest\n",  # a start marker only
+    f"# Page\n{notes.END}\nrest\n",  # an end marker only
+    f"# Page\n{notes.END}\nmiddle\n{notes.START}\nrest\n",  # the end before the start
+]
+
+
+@pytest.mark.parametrize("rendered", STRAY)
+def test_a_page_with_a_stray_marker_does_not_grow_when_it_is_merged_again(rendered):
+    previous = f"# Old\n\n## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n"
+    once = notes.merge(rendered, previous)
+    assert notes.merge(rendered, once) == once
+    assert notes.extract(once) == "Ask Jess." and once.count("## Notes") == 1
+    assert notes.merge(rendered, None) == notes.merge(rendered, notes.merge(rendered, None))
+
+
+def test_removing_markers_also_removes_one_that_a_removal_brings_together():
+    nested = f"a<!-- homelabscribe:{notes.START}notes:start -->b"
+    out = notes.merge(nested, f"{notes.START}\nmine\n{notes.END}")
+    assert out.count(notes.START) == 1 and out.startswith("ab\n\n## Notes")
+
+
+@pytest.mark.parametrize(
+    "previous",
+    [
+        None,
+        "# Old\n",
+        f"{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}\n",
+        f"{notes.START}\n\n{notes.END}\n",
+    ],
+)
+def test_merge_without_notes_to_keep_leaves_a_page_without_a_notes_block_as_it_is(previous):
+    assert notes.merge("# Page\n", previous) == "# Page\n"
+
+
+def test_merge_of_a_page_with_a_notes_block_is_unchanged():
+    rendered = f"head\n{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}\ntail\n"
+    previous = f"old\n{notes.START}\nmine\n{notes.END}\n"
+    assert notes.merge(rendered, previous) == f"head\n{notes.START}\nmine\n{notes.END}\ntail\n"
+    assert (
+        notes.merge(rendered, f"{notes.START}\n{notes.END}") == f"head\n{notes.START}\n\n{notes.END}\ntail\n"
+    )
+
+
+# ---- page names are never too long for a file name ----------------------------------------------
+
+
+def _old_slug(text: str) -> str:
+    """The rule before page names had a maximum length."""
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "item"
+
+
+def _links_resolve(out: Path) -> int:
+    """Every link from a page to another page points at a file. Returns how many links were checked."""
+    count = 0
+    for page in out.rglob("*.md"):
+        for target in re.findall(r"\]\(([^)#:\s]+\.md)\)", page.read_text()):
+            assert (page.parent / target).is_file(), (page, target)
+            count += 1
+    return count
+
+
+@pytest.mark.parametrize("length", [253, 300, 3000])
+def test_very_long_titles_and_host_names_render_and_links_point_at_the_files(tmp_path, length):
+    title, host = ("Media server " * 300)[: length - 1] + "X", ("node-" * 700)[: length - 1] + "x"
+    assert len(_old_slug(title)) == len(_old_slug(host)) == length  # too long for a file name before
+    snap = Snapshot(
+        hosts=[Host(name=host, kind="docker"), Host(name="nova", kind="docker")],
+        services=[
+            Service(name="a", host=host, kind="container", display_name=title),
+            Service(name="b", host="nova", kind="container", display_name=title),  # same title, two hosts
+            Service(name="c", host=host, kind="container"),
+        ],
+    )
+    Renderer(tmp_path, licensing.PRO_FEATURES).render(snap, [], None)
+    names = [p.name for p in tmp_path.rglob("*.md")]
+    assert all(len(n) <= 203 for n in names)
+    assert len(list((tmp_path / "services").glob("*.md"))) == 3
+    assert (tmp_path / "hosts" / f"{slug(host)}.md").is_file()
+    assert _links_resolve(tmp_path) >= 7  # index → 3 services and 2 hosts, each service → its host
+    assert Renderer(tmp_path, licensing.PRO_FEATURES).render(snap, [], None) == []  # the same names again
+
+
+def test_a_name_of_200_characters_is_kept_and_one_of_252_is_cut():
+    assert slug("a" * 200) == "a" * 200
+    cut = slug("b" * 252)
+    assert cut == "b" * 191 + "-" + hashlib.sha256(("b" * 252).encode()).hexdigest()[:8]
+    assert len(cut) == 200
+
+
+def test_a_cut_name_does_not_end_the_cut_with_a_hyphen():
+    name = "a" * 190 + " b" + "c" * 100  # the cut falls just after the hyphen
+    assert slug(name).startswith("a" * 190 + "-") and "--" not in slug(name)
+    assert len(slug(name)) == 199
+
+
+def test_long_names_that_start_the_same_get_different_page_names():
+    first, second = "x" * 191 + "-one" + "y" * 20, "x" * 191 + "-two" + "y" * 20
+    assert slug(first) != slug(second)
+    assert slug(first)[:191] == slug(second)[:191]
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    st.text(max_size=600)
+    | st.lists(st.sampled_from(["a", "Z", "9", "-", " ", ".", "\u00e9"]), max_size=500).map("".join)
+    | st.text(alphabet="az09 -.", min_size=190, max_size=700)  # often longer than 200 as a page name
+)
+def test_slug_is_a_short_safe_page_name(text):
+    s = slug(text)
+    assert 0 < len(s) <= 200 and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", s)
+    assert slug(text) == s
+    if len(_old_slug(text)) <= 200:
+        assert s == _old_slug(text)
+
+
+# ---- text that no file can hold (a lone surrogate) never stops a scan or a render -----------------
+
+BAD = "bad\ud800text"
+_TEXT_TYPES = (str, str | None, list[str], dict[str, str])
+
+
+def _all_text(model_cls, **given):
+    """A model with every text field (str, list of str, dict of str) holding a lone surrogate."""
+    values = {}
+    for name, field in model_cls.model_fields.items():
+        if field.annotation in (str, str | None):
+            values[name] = f"{name}-{BAD}"
+        elif field.annotation == list[str]:
+            values[name] = [f"{name}-{BAD}"]
+        elif field.annotation == dict[str, str]:
+            values[name] = {f"{name}-key-{BAD}": f"{name}-{BAD}"}
+    return model_cls(**{**values, **given})
+
+
+def _surrogate_lab() -> tuple[list[Host], list[Service], list]:
+    from homelabscribe.models import Mount, Port, Route
+
+    host = _all_text(Host, kind="docker")
+    web = _all_text(
+        Service,
+        host=host.name,
+        kind="container",
+        ports=[_all_text(Port, container=80, host=8080)],
+        mounts=[_all_text(Mount)],
+        vmid=None,
+    )
+    # The VM that is the Docker host.
+    guest = _all_text(Service, name=host.name, host=host.name, kind="vm", display_name=f"VM {BAD}")
+    route = _all_text(Route, forward_host=host.name, forward_port=8080)
+    return [host], [web, guest], [route]
+
+
+def _texts(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [t for v in value for t in _texts(v)]
+    if isinstance(value, dict):
+        return [t for k, v in value.items() for t in [*_texts(k), *_texts(v)]]
+    return []
+
+
+_EXPECTED_FIELDS = {
+    Host: {"name", "address", "link_host", "os", "version"},
+    Service: {"name", "host", "status", "image", "networks", "env_names", "labels", "restart_policy"}
+    | {"compose_project", "compose_service", "aliases", "depends_on", "tags", "notes", "restart_hint"}
+    | {"display_name", "description", "category", "url"},
+}  # `guest_of` and `runs_host` are set by the scan: the name and id of the Docker host and its VM
+
+
+def test_lone_surrogates_in_every_text_of_a_scan_are_saved_compared_and_rendered(tmp_path, monkeypatch):
+    from homelabscribe import store
+    from homelabscribe.collectors.npm import NpmCollector
+    from homelabscribe.config import NpmConfig
+
+    hosts, services, routes = _surrogate_lab()
+    for model, fields in _EXPECTED_FIELDS.items():  # the lab really reaches these fields
+        assert fields <= {n for n, f in model.model_fields.items() if f.annotation in _TEXT_TYPES}
+    monkeypatch.setattr(NpmCollector, "collect", lambda self: [r.model_copy(deep=True) for r in routes])
+    cfg = Config(
+        output_dir=tmp_path / "docs",
+        state_dir=tmp_path / "state",
+        npm=[NpmConfig(name=routes[0].proxy, url="http://npm.example.test:81", identity="i", secret="s")],
+    )
+    lab = Snapshot(hosts=hosts, services=services)
+    first = pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("lab", FakeCollector(lab))])
+    second = pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("lab", FakeCollector(lab))])
+    assert second.diff is not None and second.diff.empty
+
+    saved = store.recent(cfg.state_dir, 1)[0]
+    assert saved == second.snapshot and first.snapshot.model_dump(exclude={"taken_at"}) == saved.model_dump(
+        exclude={"taken_at"}
+    )
+    texts = _texts(saved.model_dump())
+    assert not any(renderer_module._SURROGATES.search(t) for t in texts)
+    for name in {n for fields in _EXPECTED_FIELDS.values() for n in fields} | {"protocol", "host_ip"}:
+        assert any(f"{name}-bad\ufffdtext" in t for t in texts), name
+    for name in ("source", "destination", "type", "proxy", "domains", "forward_scheme"):
+        assert any(f"{name}-bad\ufffdtext" in t for t in texts), name
+    assert saved.routes[0].service == saved.services[0].id
+    assert saved.routes[0].forward_host == "name-bad\ufffdtext"
+    assert saved.hosts[0].guest_of == saved.services[1].id and "\ufffd" in saved.hosts[0].guest_of
+    assert saved.services[1].runs_host == saved.hosts[0].name == "name-bad\ufffdtext"
+
+    renderer = Renderer(cfg.output_dir, licensing.PRO_FEATURES)
+    renderer.render(saved, store.load_changelog(cfg.state_dir), cfg.breakglass)
+    _pages_hold_no_surrogate(renderer)
+    page = (tmp_path / "docs" / "services").glob("*.md")
+    assert any("description-bad\ufffdtext" in p.read_text(encoding="utf-8") for p in page)
+
+
+def _pages_hold_no_surrogate(renderer: Renderer) -> None:
+    names = {p.relative_to(renderer.out).as_posix() for p in renderer.generated}
+    assert {"index.md", "routes.md", "CHANGELOG.md", "break-glass.md", "topology.md"} <= names
+    assert any(n.startswith("services/") for n in names) and any(n.startswith("hosts/") for n in names)
+    assert len([n for n in names if n.startswith("services/")]) == 2  # the container and the VM
+    for path in renderer.generated:
+        text = path.read_text(encoding="utf-8")  # every page was written and reads back as UTF-8
+        assert not renderer_module._SURROGATES.search(text)
+        assert "bad\ufffdtext" in text or path.name == "CHANGELOG.md"  # no changes: no names on it
+
+
+def test_a_renderer_handed_text_with_lone_surrogates_writes_every_page(tmp_path):
+    hosts, services, routes = _surrogate_lab()
+    renderer = Renderer(tmp_path, licensing.PRO_FEATURES)
+    renderer.render(Snapshot(hosts=hosts, services=services, routes=routes), [], None)
+    _pages_hold_no_surrogate(renderer)
+
+
+_any_text = st.text(alphabet=st.characters(codec=None), max_size=20)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    st.lists(_any_text, min_size=12, max_size=12),
+    st.dictionaries(_any_text, _any_text, max_size=3),
+)
+def test_a_cleaned_snapshot_with_any_text_is_saved_and_read_back(tmp_path_factory, t, labels):
+    from homelabscribe import store
+    from homelabscribe.models import Route
+
+    snap = Snapshot(
+        hosts=[Host(name=t[0], kind="docker", os=t[1])],
+        services=[
+            Service(name=t[2], host=t[0], kind="container", image=t[3], networks=[t[4]], labels=labels),
+            Service(name=t[5], host=t[0], kind="manual", display_name=t[6], description=t[7], category=t[8]),
+        ],
+        routes=[Route(proxy=t[9], domains=[t[10]], forward_host=t[11], forward_port=1)],
+    )
+    cleaned = pipeline.snapshot_without_surrogates_or_markers(snap)
+    state = tmp_path_factory.mktemp("state")
+    store.save(cleaned, state)
+    assert store.recent(state, 1) == [cleaned]
+    texts = _texts(snap.model_dump())
+    if not any(renderer_module._SURROGATES.search(x) or "homelabscribe:notes:" in x for x in texts):
+        assert cleaned == snap
+
+
+# ---- text from the lab is never taken for the notes block -----------------------------------------
+
+PAIR = f"{notes.START} FAKE {notes.END}"
+TOKEN = "homelabscribe:notes:"  # what every marker needs
+assert TOKEN in notes.START and TOKEN in notes.END
+
+
+def _marked_lab(image: str) -> Snapshot:
+    return Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[
+            Service(
+                name="alpha",
+                host="nova",
+                kind="container",
+                image=image,
+                display_name=f"Alpha {PAIR}",
+                description=f"Alpha does things {PAIR}",
+                labels={"com.example.note": f"see {PAIR}"},
+            ),
+            Service(name="beta", host="nova", kind="container", description=f"Beta {notes.START} half"),
+        ],
+    )
+
+
+def test_markers_in_lab_text_never_replace_the_notes(tmp_path):
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    pro = licensing.PRO_FEATURES
+    pipeline.scan(cfg, pro, collectors=[("lab", FakeCollector(_marked_lab(f"a:1 {PAIR}")))])
+    pipeline.render(cfg, pro)
+    service = tmp_path / "docs" / "services" / f"{slug(f'Alpha {PAIR}')}.md"
+    changelog = tmp_path / "docs" / "CHANGELOG.md"
+    _with_notes(service, "Alpha's notes.")
+    _with_notes(changelog, "Changelog notes.")
+
+    pipeline.scan(cfg, pro, collectors=[("lab", FakeCollector(_marked_lab(f"a:2 {PAIR}")))])
+    pipeline.render(cfg, pro)
+    assert "a:2" in changelog.read_text()  # an entry with text from the lab
+    sizes = {p: p.stat().st_size for p in (tmp_path / "docs").rglob("*.md")}
+    assert pipeline.render(cfg, pro) == []
+    assert "Alpha's notes." in service.read_text() and "Changelog notes." in changelog.read_text()
+    for page, size in sizes.items():
+        text = page.read_text()
+        assert text.count(notes.START) == text.count(notes.END) == 1, page
+        assert page.stat().st_size <= size, page
+
+
+_token_text = st.lists(
+    st.sampled_from(
+        [
+            TOKEN,
+            "homelabscribe",
+            ":notes:",
+            "homelabscribe-notes:",
+            ":",
+            "-",
+            "\ud800",
+            notes.START,
+        ]
+    )
+    | st.text(alphabet=st.characters(codec=None), max_size=8),
+    max_size=8,
+).map("".join)
+
+
+@settings(max_examples=300, deadline=None)
+@given(_token_text)
+def test_cleaned_text_never_holds_the_marker_token(text):
+    cleaned = pipeline.without_surrogates_or_markers(text)
+    assert TOKEN not in cleaned and not renderer_module._SURROGATES.search(cleaned)
+    if TOKEN not in text and not renderer_module._SURROGATES.search(text):
+        assert cleaned == text
+
+
+@pytest.mark.parametrize("new_image", [f"img:1 {TOKEN}x", f"img:2 {TOKEN}x"])
+def test_a_snapshot_saved_with_the_marker_token_is_cleaned_before_it_is_compared(tmp_path, new_image):
+    from homelabscribe import store
+
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    old = _marked_lab(f"img:1 {TOKEN}x")
+    store.save(old, cfg.state_dir)  # as a version before the cleaning would have saved it
+    assert TOKEN in (next((cfg.state_dir / "snapshots").glob("*.json"))).read_text()
+
+    result = pipeline.scan(
+        cfg, licensing.PRO_FEATURES, collectors=[("lab", FakeCollector(_marked_lab(new_image)))]
+    )
+    assert result.diff is not None
+    if new_image == old.services[0].image:
+        assert result.diff.empty  # the cleaning alone is not a change
+    else:
+        assert [c.kind for c in result.diff.changes] == ["changed"]
+    assert TOKEN not in str(store.load_changelog(cfg.state_dir))
+
+
+def test_the_cleaning_walks_every_kind_of_container():
+    bad = f"x\ud800{TOKEN}y"
+    good = "x\ufffdhomelabscribe-notes:y"
+    data = {
+        bad: [bad, (bad, 1), {bad}, frozenset({bad, 2.5})],
+        "t": (bad, [bad], {bad: (bad,)}, frozenset({(bad, None)})),
+        "s": {bad, (bad, bad)},
+        "n": [None, True, 3],
+    }
+    out = pipeline._value_without_surrogates_or_markers(data)
+    assert out == {
+        good: [good, (good, 1), {good}, frozenset({good, 2.5})],
+        "t": (good, [good], {good: (good,)}, frozenset({(good, None)})),
+        "s": {good, (good, good)},
+        "n": [None, True, 3],
+    }
+    assert type(out[good][1]) is tuple and type(out[good][2]) is set and type(out[good][3]) is frozenset
+    assert type(out["t"]) is tuple and type(out["t"][1]) is list and type(out["s"]) is set
+
+
+# ---- names from the config are matched in their cleaned form ---------------------------------------
+
+
+@pytest.mark.parametrize("suffix", [f"{TOKEN}x", "\udcff"])  # "\udcff": a byte that is not UTF-8 in ${VAR}
+def test_an_outage_keeps_what_was_last_known_of_a_source_whose_name_needs_cleaning(
+    tmp_path, monkeypatch, suffix
+):
+    from test_collectors import FakeDockerClient
+
+    from homelabscribe.collectors.docker import DockerCollector
+    from homelabscribe.collectors.npm import NpmCollector
+    from homelabscribe.config import load_config
+    from homelabscribe.models import Route
+
+    monkeypatch.setenv("LAB_SUFFIX", suffix)
+    path = tmp_path / "homelabscribe.yaml"
+    path.write_text(
+        f"output_dir: {tmp_path / 'docs'}\nstate_dir: {tmp_path / 'state'}\n"
+        "docker_hosts:\n  - {name: 'nova-${LAB_SUFFIX}', url: 'tcp://fake:2375'}\n"
+        "npm:\n  - {name: 'proxy-${LAB_SUFFIX}', url: 'http://npm.example.test:81', identity: i, secret: s}\n"
+        "manual_services:\n  - {name: printer, host: 'nova-${LAB_SUFFIX}'}\n"
+    )
+    cfg = load_config(path)
+    host, proxy = cfg.docker_hosts[0].name, cfg.npm[0].name
+    assert (host, proxy) == (f"nova-{suffix}", f"proxy-{suffix}")  # as written, never changed
+    route = Route(proxy=proxy, domains=["tv.example.test"], forward_host=host, forward_port=8989)
+    monkeypatch.setattr(DockerCollector, "client", property(lambda self: FakeDockerClient()))
+    monkeypatch.setattr(NpmCollector, "collect", lambda self: [route.model_copy()])
+    good = pipeline.scan(cfg, licensing.PRO_FEATURES).snapshot
+    assert len(good.hosts) == 1 and len(good.services) == 2 and len(good.routes) == 1
+
+    def down(self):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(DockerCollector, "client", property(down))
+    monkeypatch.setattr(NpmCollector, "collect", down)
+    result = pipeline.scan(cfg, licensing.PRO_FEATURES)
+    assert len(result.errors) == 2 and f"'{host}'" in result.errors[0]  # messages show the name as written
+    assert result.diff is not None and result.diff.empty
+    now = result.snapshot
+    assert now.model_dump(include={"hosts", "routes"}) == good.model_dump(include={"hosts", "routes"})
+    # A hand-described service on a host that is kept is listed twice; so it is on the default branch too.
+    assert {s.model_dump_json() for s in now.services} == {s.model_dump_json() for s in good.services}
+
+
+def test_critical_services_named_in_the_config_are_found_by_their_cleaned_names(tmp_path):
+    from homelabscribe.config import BreakGlassConfig
+
+    title = f"Alpha {TOKEN}x"
+    cfg = Config(
+        output_dir=tmp_path / "docs",
+        state_dir=tmp_path / "state",
+        breakglass=BreakGlassConfig(critical=[title]),
+    )
+    lab = Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[
+            Service(name="alpha", host="nova", kind="container", display_name=title),
+            Service(name="beta", host="nova", kind="container", display_name="Beta"),
+        ],
+    )
+    pipeline.render(cfg, licensing.PRO_FEATURES, pipeline.snapshot_without_surrogates_or_markers(lab))
+    page = (tmp_path / "docs" / "break-glass.md").read_text()
+    assert "Alpha homelabscribe-notes:x" in page and "Beta" not in page
+    assert cfg.breakglass.critical == [title]  # the config itself is not changed
+
+
+def test_a_host_another_source_returned_is_not_kept_twice_when_its_name_needs_cleaning():
+    from homelabscribe.collectors.docker import DockerCollector
+
+    name = f"nova-{TOKEN}x"
+    previous = pipeline.snapshot_without_surrogates_or_markers(
+        Snapshot(
+            hosts=[Host(name=name, kind="docker")],
+            services=[Service(name="web", host=name, kind="container")],
+        )
+    )
+    scanned = Snapshot(hosts=[Host(name=name, kind="proxmox-node")])  # as the new scan returned it
+    collector = DockerCollector(DockerHostConfig(name=name, url="tcp://fake:2375"))
+    assert pipeline._carry_over(previous, collector, scanned) == ([], [])
+
+
+def test_render_cleans_a_snapshot_saved_before_the_cleaning(tmp_path):
+    from homelabscribe import store
+
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    lab = Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[Service(name="alpha", host="nova", kind="container", description=f"Alpha {PAIR}")],
+    )
+    pipeline.render(cfg, licensing.PRO_FEATURES, pipeline.snapshot_without_surrogates_or_markers(lab))
+    page = tmp_path / "docs" / "services" / "alpha.md"
+    _with_notes(page, "Alpha's notes.")
+    store.save(lab, cfg.state_dir)  # as a version before the cleaning saved it: the markers are in it
+    assert notes.START in next((cfg.state_dir / "snapshots").glob("*.json")).read_text()
+
+    pipeline.render(cfg, licensing.PRO_FEATURES)  # the newest snapshot from the store
+    text = page.read_text()
+    assert "Alpha's notes." in text
+    assert text.count(notes.START) == text.count(notes.END) == 1

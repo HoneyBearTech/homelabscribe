@@ -59,14 +59,28 @@ def verify(key: str, public_key_b64: str = PUBLIC_KEY_B64) -> License:
         pub = Ed25519PublicKey.from_public_bytes(_b64d(public_key_b64))
     except ValueError as e:
         raise LicenseError("This build has no license public key configured.") from e
-    payload = _b64d(payload_b64)
     try:
-        pub.verify(_b64d(sig_b64), payload)
+        payload, sig = _b64d(payload_b64), _b64d(sig_b64)
+    except ValueError as e:  # not base64, or not ASCII
+        raise LicenseError("Malformed license key.") from e
+    try:
+        pub.verify(sig, payload)
     except InvalidSignature as e:
         raise LicenseError("License key signature is invalid.") from e
-    data = json.loads(payload)
-    exp = date.fromisoformat(data["expires"]) if data.get("expires") else None
-    return License(email=data["email"], tier=data.get("tier", "pro"), expires=exp)
+    try:
+        return _license(json.loads(payload))
+    except (ValueError, RecursionError) as e:  # not JSON, not the expected object, or a bad date
+        raise LicenseError("Malformed license key.") from e
+
+
+def _license(data: object) -> License:
+    """The license a signed payload describes; ValueError when it is not the expected JSON object."""
+    if not isinstance(data, dict):
+        raise ValueError("not an object")
+    email, tier, expires = data.get("email"), data.get("tier", "pro"), data.get("expires")
+    if not isinstance(email, str) or not isinstance(tier, str) or not isinstance(expires, str | None):
+        raise ValueError("a field is missing or has the wrong type")
+    return License(email=email, tier=tier, expires=date.fromisoformat(expires) if expires else None)
 
 
 def sign(email: str, tier: str, expires: date | None, private_key) -> str:

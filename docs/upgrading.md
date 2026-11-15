@@ -25,3 +25,7 @@ Newer versions default to `homelabscribe-docs/` instead of `docs/`. If you relie
 ## Front matter is quoted when it needs it
 
 Generated pages now quote a `title`, `host`, `category`, `status` or `image` in the front matter when plain text would not be read back as the same text (for example `Media: TV`, `123`, `true` or a value with a line break). A page where one of these needed quoting is rewritten once on the next run; every other page is unchanged. The second tag of a service page is the category as a tag. Letters and digits of any language (and their combining marks), `_`, `-` and `/` are kept in lower case, every run of other characters becomes one hyphen, and hyphens and slashes at the start and end are dropped (`item` if nothing is left), so a custom category's tag changes only when it held other characters, or several spaces in a row. The tags of the built-in categories do not change.
+
+## Notes on the changelog page, and shorter long page names
+
+The Pro changelog page (`CHANGELOG.md`) now ends with a notes block like every other page; it is rewritten once on the next run to add it. A page whose name was between 201 and 252 characters long gets a new, shorter name (see [where pages are written](compatibility.md#covered)). Its old file is handled like any page that is no longer generated: moved to `archive/` if it holds notes, removed if it does not.

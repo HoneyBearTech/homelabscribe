@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import hashlib
 import itertools
 import os
 import re
@@ -44,9 +45,19 @@ WEB_PORTS = {
 DNS_IMAGES = frozenset({"pihole", "pi-hole", "adguardhome"})  # exact image names, so exporters do not match
 
 
+SLUG_MAX = 200  # a page name stays well inside the 255 bytes most file systems allow for a file name
+
+
 def slug(text: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return s or "item"
+    """A page name: lower-case letters, digits and single hyphens, at most `SLUG_MAX` characters.
+
+    A longer name is cut to its first 191 characters (hyphens at the cut removed) and ends with a hyphen
+    and the first 8 hex digits of the SHA-256 of the whole name, so two long names stay apart.
+    """
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "item"
+    if len(s) <= SLUG_MAX:
+        return s
+    return f"{s[: SLUG_MAX - 9].rstrip('-')}-{hashlib.sha256(s.encode()).hexdigest()[:8]}"
 
 
 def tag_text(category: str) -> str:
@@ -100,6 +111,11 @@ def _escape_char(c: str) -> str:
 _SURROGATES = re.compile("[\ud800-\udfff]")
 
 
+def replace_surrogates(text: str) -> str:
+    """The text with U+FFFD (the replacement character) for every lone surrogate, which no file can hold."""
+    return _SURROGATES.sub("\ufffd", text)
+
+
 def yaml_text(value: object) -> str:
     """A text as a one-line YAML scalar that every YAML reader reads back as exactly the same str.
 
@@ -110,7 +126,7 @@ def yaml_text(value: object) -> str:
     back as exactly the same str.
     """
     text = value if isinstance(value, str) else str(value)
-    text = _SURROGATES.sub("\ufffd", text)
+    text = replace_surrogates(text)
     if _plain_ok(text):
         return text
     return '"' + "".join(_escape_char(c) for c in text) + '"'
@@ -316,7 +332,7 @@ class Renderer:
         path = self.out / rel
         self.generated.add(path)
         previous = path.read_text() if path.exists() else None
-        merged = notes.merge(content, previous)
+        merged = notes.merge(replace_surrogates(content), previous)
         if merged == previous:
             return
         path.parent.mkdir(parents=True, exist_ok=True)

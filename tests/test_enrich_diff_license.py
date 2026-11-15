@@ -93,6 +93,65 @@ def test_expired_and_missing_license_fall_back_to_free():
     assert licensing.features("garbage", pub)[0] == frozenset()
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        "LS1.x.y",  # not base64
+        "LS1.\u00e9.\u00e9",  # not ASCII
+        "LS1.eyJhIjox.\u00e9",  # the signature does not decode
+        "LS1.\u00e9.AAAA",  # the payload does not decode
+        "LS1.AAAAA.AAAA",  # five characters: one more than a multiple of four
+        "LS1.\ud800.\ud800",  # a lone surrogate
+        "LS1.eyJhbWFpbCI6.AAAAA",  # cut off in the signature
+        "  LS1.x.y\n",
+    ],
+)
+def test_undecodable_key_is_a_license_error(key):
+    with pytest.raises(licensing.LicenseError, match="^Malformed license key\\.$"):
+        licensing.verify(key)
+    assert licensing.features(key) == (frozenset(), "Free edition (Malformed license key.)")
+
+
+def _signed(payload: bytes, priv) -> str:
+    return f"LS1.{licensing._b64e(payload)}.{licensing._b64e(priv.sign(payload))}"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not json",
+        b"\xff\xfe",
+        b"[1, 2]",
+        b'"a@example.com"',
+        b"null",
+        b"{}",
+        b'{"tier": "pro", "expires": null}',
+        b'{"email": 1, "expires": null}',
+        b'{"email": "a@example.com", "tier": ["pro"]}',
+        b'{"email": "a@example.com", "expires": 20271017}',
+        b'{"email": "a@example.com", "expires": "next year"}',
+        b'{"email": "a@example.com", "expires": "2027-13-40"}',
+        b"[" * 100_000 + b"]" * 100_000,
+    ],
+)
+def test_signed_payload_of_the_wrong_shape_is_a_license_error(payload):
+    priv, pub = _keys()
+    key = _signed(payload, priv)
+    with pytest.raises(licensing.LicenseError, match="^Malformed license key\\.$"):
+        licensing.verify(key, pub)
+    assert licensing.features(key, pub) == (frozenset(), "Free edition (Malformed license key.)")
+
+
+def test_valid_keys_read_as_before():
+    priv, pub = _keys()
+    assert licensing.features(licensing.sign("a@example.com", "pro", date(2999, 1, 2), priv), pub) == (
+        licensing.PRO_FEATURES,
+        "Pro \u2014 licensed to a@example.com until 2999-01-02",
+    )
+    lic = licensing.verify(_signed(b'{"email": "a@example.com"}', priv), pub)  # tier and expiry optional
+    assert (lic.email, lic.tier, lic.expires) == ("a@example.com", "pro", None)
+
+
 def test_same_catalog_name_on_one_host_gets_distinct_titles():
     svcs = [
         Service(name="sonarr", host="h", kind="container", image="lscr.io/linuxserver/sonarr:latest"),
