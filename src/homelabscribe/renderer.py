@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import itertools
+import os
 import re
-import shutil
 import unicodedata
 from collections import defaultdict
 from datetime import datetime
@@ -135,6 +137,50 @@ def _when(dt: datetime) -> str:
     return f"{local:%B} {local.day}, {local:%Y at %H:%M %Z}".strip()
 
 
+# Create the file itself, never what a link in its place points at (and as bytes, where that is a choice).
+_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+
+
+def _fill(fd: int, data: bytes) -> None:
+    """Write all of `data` to the new file open at `fd` and close it."""
+    try:
+        f = os.fdopen(fd, "wb")
+    except BaseException:
+        os.close(fd)
+        raise
+    with f:
+        f.write(data)
+
+
+def _archive(page: Path, folder: Path) -> Path:
+    """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy.
+
+    The first name tried is the page's own (`plex.md`), then `plex-2.md`, `plex-3.md` and so on. A name is
+    taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
+    each name is taken by creating a new file in one step, which fails if the name exists. The copy holds
+    the page's bytes. The page is removed only once its copy is complete; if anything fails, the error is
+    raised, the page stays where it was and the file this call created is removed. A page that is a link
+    is copied as the text it points to, and then only the link is removed.
+    """
+    data = page.read_bytes()
+    base = page.name.removesuffix(".md")
+    for n in itertools.count(1):
+        dest = folder / (page.name if n == 1 else f"{base}-{n}.md")
+        try:
+            fd = os.open(dest, _NEW_FILE, 0o666)
+        except FileExistsError:
+            continue
+        break
+    try:
+        _fill(fd, data)
+        page.unlink()
+    except BaseException:
+        with contextlib.suppress(OSError):  # the file this call created: never one that was there before
+            dest.unlink()
+        raise
+    return dest
+
+
 class Renderer:
     def __init__(
         self, output_dir: Path, features: frozenset[str] = frozenset(), template_dir: Path | None = None
@@ -236,9 +282,9 @@ class Renderer:
                 continue
             kept = notes.extract(f.read_text())
             if kept and kept.strip() != notes.PLACEHOLDER:
-                dest = self.out / "archive" / folder / f.name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(f, dest)
+                dest = self.out / "archive" / folder
+                dest.mkdir(parents=True, exist_ok=True)
+                _archive(f, dest)
             else:
                 f.unlink()
             self.written.append(f)
