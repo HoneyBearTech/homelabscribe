@@ -1,3 +1,5 @@
+import pytest
+
 from homelabscribe import notify
 from homelabscribe.config import Config, NotifyConfig
 from homelabscribe.diff import Change, Diff
@@ -52,3 +54,33 @@ def test_failures_do_not_leak_address_or_token(tmp_path):
 def test_notify_config_parses():
     cfg = Config.model_validate({"notify": [{"type": "ntfy", "url": "https://ntfy.sh/x", "token": "t"}]})
     assert cfg.notify[0].on == ["changes", "errors"]
+
+
+@pytest.mark.parametrize("content", ["[]", "null", '{"errors": 5}', '{"errors": [1, null]}', "{", "", "5"])
+def test_a_state_file_with_another_shape_counts_as_empty(tmp_path, content):
+    (tmp_path / notify.STATE_FILE).write_text(content)
+    sent = []
+    notify.notify_after_scan([DISCORD], tmp_path, None, ["Docker host 'a'"], post=lambda *a: sent.append(a))
+    assert len(sent) == 1
+
+
+def test_a_state_file_that_is_not_utf8_counts_as_empty(tmp_path):
+    (tmp_path / notify.STATE_FILE).write_bytes(b"\xff\xfe\x00")
+    sent = []
+    notify.notify_after_scan([DISCORD], tmp_path, None, ["x"], post=lambda *a: sent.append(a))
+    assert len(sent) == 1
+
+
+def test_a_state_file_write_that_fails_keeps_the_old_file(tmp_path, monkeypatch):
+    import errno
+    import os
+
+    (tmp_path / notify.STATE_FILE).write_text('{"errors": ["a"]}')
+
+    def boom(src, dst):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "replace", boom)
+    failed = notify.notify_after_scan([DISCORD], tmp_path, None, ["b"], post=lambda *a: None)
+    assert (tmp_path / notify.STATE_FILE).read_text() == '{"errors": ["a"]}'
+    assert failed == ["state file: could not be written"]
