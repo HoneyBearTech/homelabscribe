@@ -1,6 +1,9 @@
 ---
 title: {{ s.title|yaml_text }}
 host: {{ s.host|yaml_text }}
+{% if page_id(s) %}
+id: {{ page_id(s)|yaml_text }}
+{% endif %}
 category: {{ s.category|yaml_text }}
 status: {{ s.status|yaml_text }}
 {% if s.image %}

@@ -10,7 +10,7 @@ import re
 import stat
 import unicodedata
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import TypeVar
@@ -77,17 +77,20 @@ def coded_name(base: str, key: str, taken: set[str]) -> str:
     `base` is cut so the whole name fits (hyphens at the cut removed). When the name is taken, the code
     grows by two digits (10, 12, ...) until it is free; with all 64 digits taken, `-2`, `-3`, ... follow.
     """
+    return next(name for name in _code_names(base, key) if name not in taken)
+
+
+def _code_names(base: str, key: str, counted: bool = True) -> Iterator[str]:
+    """The names `coded_name` tries, in order: the code with 8, 10, ... 64 hex digits, then (if `counted`)
+    the full code with `-2`, `-3`, ... for ever."""
     digest = hashlib.sha256(replace_surrogates(key).encode()).hexdigest()
     for n in range(CODE_START, len(digest) + 1, 2):
-        name = f"{base[: SLUG_MAX - 1 - n].rstrip('-')}-{digest[:n]}"
-        if name not in taken:
-            return name
+        yield f"{base[: SLUG_MAX - 1 - n].rstrip('-')}-{digest[:n]}"
+    if not counted:
+        return
     for i in itertools.count(2):
         tail = f"{digest}-{i}"
-        name = f"{base[: SLUG_MAX - 1 - len(tail)].rstrip('-')}-{tail}"
-        if name not in taken:
-            return name
-    raise AssertionError("unreachable")  # pragma: no cover
+        yield f"{base[: SLUG_MAX - 1 - len(tail)].rstrip('-')}-{tail}"
 
 
 FRONT_MATTER_MAX = 64 * 1024  # bytes of a page read to find whose page it is
@@ -342,30 +345,49 @@ class Renderer:
             # Add the host only when two services share a title.
             return slug(s.title) if titles[s.title.lower()] == 1 else slug(f"{s.title}-{s.host}")
 
-        def service_owns(fm: dict, s: Service) -> bool:
+        def same_title_and_host(fm: dict, s: Service) -> bool:
             title, host = replace_surrogates(s.title), replace_surrogates(s.host)
             return fm.get("title") == title and fm.get("host") == host
+
+        def service_owner(fm: dict, group: list[Service]) -> Service | None:
+            # The page's `id` first; else its title and host, if they are one member's only.
+            by_id = [s for s in group if fm.get("id") == replace_surrogates(s.id)]
+            if len(by_id) == 1:
+                return by_id[0]
+            alike = [s for s in by_id or group if same_title_and_host(fm, s)]
+            if len(alike) == 1:
+                return alike[0]
+            return by_id[0] if by_id else None  # an id two services share: the first in the fixed order
+
+        def service_keys(s: Service, group: list[Service]) -> list[str]:
+            # What the code is made from: host and title, and the id too when another member has both.
+            short, long = f"{s.host}/{s.title}", f"{s.host}/{s.title}/{s.id}"
+            shared = sum(o.host == s.host and o.title == s.title for o in group) > 1
+            return [long, short] if shared else [short, long]
+
+        def service_claims(fm: dict, s: Service) -> bool:
+            return fm.get("id") == replace_surrogates(s.id) and same_title_and_host(fm, s)
 
         def fixed_order(s: Service) -> tuple:
             # A service whose own title is unique first (its name is that title), then title, host, names.
             return titles[s.title.lower()] != 1, s.title, s.host, s.name, s.compose_service or "", s.kind
 
-        service_names, service_extra = self._names(
-            "services",
-            services,
-            base,
-            fixed_order,
-            service_owns,
-            lambda s: f"{s.host}/{s.title}",
+        service_names, service_extra, grouped = self._names(
+            "services", services, base, fixed_order, service_owner, service_keys, service_claims
         )
         host_list = list({h.name: h for h in hosts}.values())
-        host_names, host_extra = self._names(
+
+        def host_is(fm: dict, h: Host) -> bool:
+            return fm.get("title") == replace_surrogates(h.name)
+
+        host_names, host_extra, _ = self._names(
             "hosts",
             host_list,
             lambda h: slug(h.name),
             lambda h: h.name,
-            lambda fm, h: fm.get("title") == replace_surrogates(h.name),
-            lambda h: h.name,
+            lambda fm, group: next((h for h in group if host_is(fm, h)), None),
+            lambda h, group: [h.name],
+            host_is,
         )
         # By the service itself: two services can share an id (a VM and a container named like its host).
         names = {id(s): n for s, n in zip(services, service_names, strict=True)}
@@ -383,6 +405,10 @@ class Renderer:
 
         def page(s: Service) -> str:
             return names.get(id(s)) or names_by_id.get(s.id) or base(s)
+
+        def page_id(s: Service) -> str | None:
+            # Only on the pages of services whose page names clashed: the others stay as they were.
+            return s.id if id(s) in grouped else None
 
         def address(s: Service) -> str | None:
             if s.url:
@@ -412,6 +438,7 @@ class Renderer:
             "hosts": hosts,
             "services": services,
             "page": page,
+            "page_id": page_id,
             "address": address,
             "deps": deps,
             "users": users,
@@ -426,39 +453,71 @@ class Renderer:
         items: list[T],
         base: Callable[[T], str],
         order: Callable[[T], tuple | str],
-        owns: Callable[[dict, T], bool],
-        key: Callable[[T], str],
-    ) -> tuple[list[str], list[tuple[T, str, T]]]:
-        """The page name of each item (in the order of `items`), and `(item, name, owner)` for each item
-        whose base name was another's.
+        owner: Callable[[dict, list[T]], T | None],
+        keys: Callable[[T, list[T]], list[str]],
+        claims: Callable[[dict, T], bool],
+    ) -> tuple[list[str], list[tuple[T, str, T]], set[int]]:
+        """The page name of each item (in the order of `items`), `(item, name, owner)` for each item whose
+        base name was another's, and the `id()` of every item whose base name was shared.
 
         Items with the same base name share it only in name: one keeps it, each other one gets the base name
-        with a code from `key` (`coded_name`). The one that keeps it is the one the page already in
-        `folder` under that name was written for (`owns` its front matter); without such a page, the first
-        in `order`. The result does not depend on the order of `items`, and no two items get the same name.
+        with a code (`coded_name`). The one that keeps it is the one `owner` finds for the front matter of
+        the page already in `folder` under that name; without one, the first in `order`. Each other item
+        keeps a coded page already there that `claims` says was written for it (any of its `keys`, any code
+        length); otherwise it gets a new one from its first key. The result does not depend on the order of
+        `items`, and no two items get the same name.
         """
         groups: dict[str, list[T]] = defaultdict(list)
         for it in items:
             groups[base(it)].append(it)
         taken = set(groups)
         named: dict[int, str] = {}
-        extra: list[tuple[T, str, T]] = []
-        for name in sorted(groups):
+        owners: dict[str, T] = {}
+        grouped: set[int] = set()
+        new: list[tuple[str, T, list[T]]] = []
+        for name in sorted(groups):  # every owner, and every coded page kept, before any new name
             group = groups[name]
-            owner = group[0]
-            if len(group) > 1:
-                group = sorted(group, key=order)
-                fm = front_matter(self.out / folder / f"{name}.md")
-                owner = next((it for it in group if fm is not None and owns(fm, it)), group[0])
-            named[id(owner)] = name
+            if len(group) == 1:
+                named[id(group[0])] = name
+                continue
+            group = sorted(group, key=order)
+            grouped.update(id(it) for it in group)
+            fm = front_matter(self.out / folder / f"{name}.md")
+            owners[name] = (owner(fm, group) if fm is not None else None) or group[0]
+            named[id(owners[name])] = name
             for it in group:
-                if it is owner:
+                if it is owners[name]:
                     continue
-                coded = coded_name(name, key(it), taken)
-                taken.add(coded)
-                named[id(it)] = coded
-                extra.append((it, coded, owner))
-        return [named[id(it)] for it in items], extra
+                kept = self._kept_page(folder, name, keys(it, group), taken, lambda fm, it=it: claims(fm, it))
+                if kept is None:
+                    new.append((name, it, group))
+                else:
+                    taken.add(kept)
+                    named[id(it)] = kept
+        for name, it, group in new:
+            coded = coded_name(name, keys(it, group)[0], taken)
+            taken.add(coded)
+            named[id(it)] = coded
+        extra = [
+            (it, named[id(it)], owners[name])
+            for name in sorted(owners)
+            for it in sorted(groups[name], key=order)
+            if it is not owners[name]
+        ]
+        return [named[id(it)] for it in items], extra, grouped
+
+    def _kept_page(
+        self, folder: str, base: str, keys: list[str], taken: set[str], claims: Callable[[dict], bool]
+    ) -> str | None:
+        """The name of a coded page already in `folder` that `claims` says is this item's, or None."""
+        for key in keys:
+            for name in _code_names(base, key, counted=False):
+                if name in taken or not os.path.lexists(self.out / folder / f"{name}.md"):
+                    continue
+                fm = front_matter(self.out / folder / f"{name}.md")
+                if fm is not None and claims(fm):
+                    return name
+        return None
 
     # ---- writing ----------------------------------------------------------------------
 

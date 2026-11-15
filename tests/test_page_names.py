@@ -252,12 +252,15 @@ def test_a_code_that_is_taken_grows_until_it_is_free(tmp_path):
     _check_own_pages_and_links(tmp_path, snap)
 
 
-def test_two_look_alikes_with_one_host_and_title_get_two_codes(tmp_path):
+def test_look_alikes_with_one_host_and_title_get_codes_from_their_ids(tmp_path):
     snap = _snap(["h"], [_svc(n, "h", "Plex") for n in ("a", "b", "c")])
     Renderer(tmp_path).render(snap)
-    names = {p.stem for p in (tmp_path / "services").glob("*.md")}
-    key = _code("h/Plex", 64)
-    assert names == {"plex-h", f"plex-h-{key[:8]}", f"plex-h-{key[:10]}"}  # by name: a, b, c
+    names = {p.stem: front_matter(p)["id"] for p in (tmp_path / "services").glob("*.md")}
+    assert names == {
+        "plex-h": "h/a",  # the fixed order: by container name
+        f"plex-h-{_code('h/Plex/h/b')}": "h/b",
+        f"plex-h-{_code('h/Plex/h/c')}": "h/c",
+    }
     assert Renderer(tmp_path).render(snap) == []
 
 
@@ -434,3 +437,129 @@ def test_front_matter_never_raises(tmp_path, monkeypatch):
 
     monkeypatch.setattr(renderer_module.yaml, "safe_load", boom)
     assert front_matter(page) is None
+
+
+# --- the `id` key: look-alikes with the same title and host keep their pages ---------------------------
+
+
+def _ids(out: Path) -> dict[str, str | None]:
+    return {p.stem: front_matter(p).get("id") for p in (out / "services").glob("*.md")}
+
+
+def _notes_of(out: Path) -> dict[str, str]:
+    """The notes text of each page that has any, by the id in its front matter."""
+    found = {}
+    for p in (out / "services").glob("*.md"):
+        kept = notes.extract(p.read_text())
+        if kept and kept.strip() != notes.PLACEHOLDER:
+            found[front_matter(p)["id"]] = kept.strip()
+    return found
+
+
+def _plex(*names, host="h"):
+    return _snap([host], [_svc(n, host, "Plex") for n in names])
+
+
+def test_a_newcomer_with_the_same_title_and_host_does_not_take_a_page(tmp_path):
+    Renderer(tmp_path).render(_plex("pLEX", "plex"))
+    plain, coded = "plex-h", f"plex-h-{_code('h/Plex/h/plex')}"
+    assert _ids(tmp_path) == {plain: "h/pLEX", coded: "h/plex"}
+    _add_notes(tmp_path / "services" / f"{plain}.md", "About pLEX.")
+    _add_notes(tmp_path / "services" / f"{coded}.md", "About plex.")
+
+    renderer = Renderer(tmp_path)
+    renderer.render(_plex("pLEX", "plex", "PLEX"))  # PLEX comes first in the fixed order
+    newcomer = f"plex-h-{_code('h/Plex/h/PLEX')}"
+    assert _ids(tmp_path) == {plain: "h/pLEX", coded: "h/plex", newcomer: "h/PLEX"}
+    assert _notes_of(tmp_path) == {"h/pLEX": "About pLEX.", "h/plex": "About plex."}
+    assert not (tmp_path / "archive").exists()
+    assert renderer.notices == [
+        f'"Plex" on h has its own page services/{newcomer}.md (its name matched "Plex")',
+        f'"Plex" on h has its own page services/{coded}.md (its name matched "Plex")',
+    ]
+
+
+def test_look_alikes_come_and_go_over_several_runs_and_nothing_moves(tmp_path):
+    plain = "plex-h"
+    coded = {n: f"plex-h-{_code(f'h/Plex/h/{n}')}" for n in ("plex", "PLEX", "Plex")}
+
+    Renderer(tmp_path).render(_plex("pLEX", "plex"))
+    _add_notes(tmp_path / "services" / f"{plain}.md", "About pLEX.")
+    _add_notes(tmp_path / "services" / f"{coded['plex']}.md", "About plex.")
+
+    Renderer(tmp_path).render(_plex("pLEX", "plex", "PLEX"))
+    _add_notes(tmp_path / "services" / f"{coded['PLEX']}.md", "About PLEX.")
+    want = {plain: "h/pLEX", coded["plex"]: "h/plex", coded["PLEX"]: "h/PLEX"}
+    assert _ids(tmp_path) == want
+
+    Renderer(tmp_path).render(_plex("PLEX", "pLEX"))  # plex goes away: its page is archived with its notes
+    assert _ids(tmp_path) == {plain: "h/pLEX", coded["PLEX"]: "h/PLEX"}
+    assert "About plex." in (tmp_path / "archive" / "services" / f"{coded['plex']}.md").read_text()
+
+    Renderer(tmp_path).render(_plex("plex", "Plex", "PLEX", "pLEX"))  # plex is back, and one more
+    assert _ids(tmp_path) == want | {coded["Plex"]: "h/Plex"}
+    assert _notes_of(tmp_path) == {"h/pLEX": "About pLEX.", "h/PLEX": "About PLEX."}
+
+    for order in (_plex("pLEX", "Plex", "PLEX", "plex"), _plex("plex", "PLEX", "Plex", "pLEX")):
+        Renderer(tmp_path).render(order)
+        assert _ids(tmp_path) == want | {coded["Plex"]: "h/Plex"}
+    assert _notes_of(tmp_path) == {"h/pLEX": "About pLEX.", "h/PLEX": "About PLEX."}
+    assert sorted(p.name for p in (tmp_path / "archive" / "services").iterdir()) == [f"{coded['plex']}.md"]
+
+
+def test_a_coded_page_stays_when_its_code_would_now_come_from_the_id(tmp_path):
+    # "Plex" and "plex" on h: one name, and each host and title its own, so the code is from host and title.
+    Renderer(tmp_path).render(_snap(["h"], [_svc("a", "h", "Plex"), _svc("b", "h", "plex")]))
+    short = f"plex-h-{_code('h/plex')}"
+    assert _ids(tmp_path) == {"plex-h": "h/a", short: "h/b"}
+    _add_notes(tmp_path / "services" / f"{short}.md", "About b.")
+    # c has b's host and title: new codes come from the id now, but b keeps the page it has.
+    snap = _snap(["h"], [_svc("a", "h", "Plex"), _svc("b", "h", "plex"), _svc("c", "h", "plex")])
+    Renderer(tmp_path).render(snap)
+    assert _ids(tmp_path) == {"plex-h": "h/a", short: "h/b", f"plex-h-{_code('h/plex/h/c')}": "h/c"}
+    assert _notes_of(tmp_path) == {"h/b": "About b."}
+    assert Renderer(tmp_path).render(snap) == []
+
+
+def test_an_owner_page_without_an_id_falls_back_to_title_and_host_only_when_one_matches(tmp_path):
+    page = tmp_path / "services" / "plex-h.md"
+    _hostile(page, "Plex", "")  # an older page: title and host, no id
+    Renderer(tmp_path).render(_plex("pLEX", "plex"))
+    assert _ids(tmp_path)["plex-h"] == "h/pLEX"  # both match: the fixed order
+
+    page = tmp_path / "b" / "services" / "plex-h.md"
+    _hostile(page, "plex", "")
+    Renderer(tmp_path / "b").render(_snap(["h"], [_svc("a", "h", "Plex"), _svc("b", "h", "plex")]))
+    assert _ids(tmp_path / "b")["plex-h"] == "h/b"  # only b matches
+
+
+def test_an_owner_page_with_an_unknown_id_falls_back_to_title_and_host(tmp_path):
+    _hostile(tmp_path / "services" / "plex-h.md", "plex", "id: h/gone\n")
+    Renderer(tmp_path).render(_snap(["h"], [_svc("a", "h", "Plex"), _svc("b", "h", "plex")]))
+    assert _ids(tmp_path)["plex-h"] == "h/b"
+
+
+def test_services_that_share_an_id_get_two_pages_and_keep_them(tmp_path):
+    # A VM and a container named alike on one host have the same id: the fixed order (by kind) decides.
+    lab = [_svc("x", "h", "Plex", kind="vm"), _svc("x", "h", "Plex", kind="container")]
+    snap = Snapshot(hosts=[Host(name="h", kind="docker")], services=lab, taken_at=TAKEN_AT)
+    Renderer(tmp_path).render(snap)
+    key = _code("h/Plex/h/x", 64)
+    assert set(_ids(tmp_path)) == {"plex-h", f"plex-h-{key[:8]}"}
+    first = {p.name: p.read_text() for p in (tmp_path / "services").glob("*.md")}
+    snap.services.reverse()
+    Renderer(tmp_path).render(snap)
+    assert {p.name: p.read_text() for p in (tmp_path / "services").glob("*.md")} == first
+
+
+def test_only_pages_of_look_alikes_have_an_id(tmp_path):
+    _, snap = demo_snapshots()
+    enrich(snap.services, load_catalog())
+    Renderer(tmp_path / "demo", licensing.PRO_FEATURES).render(snap, [], None)
+    assert not any("\nid: " in p.read_text() for p in (tmp_path / "demo").rglob("*.md"))
+    Renderer(tmp_path / "a").render(_snap(*CASES["titles that differ only in punctuation"]))
+    assert _ids(tmp_path / "a") == {"plex-media": "h/a", f"plex-media-{_code('h/Plex-Media')}": "h/b"}
+    text = (tmp_path / "a" / "services" / "plex-media.md").read_text()
+    assert text.startswith("---\ntitle: Plex Media\nhost: h\nid: h/a\ncategory: Other\n")
+    Renderer(tmp_path / "a").render(_snap(["h"], [_svc("a", "h", "Plex Media")]))  # alone again: no id
+    assert _ids(tmp_path / "a") == {"plex-media": None}
