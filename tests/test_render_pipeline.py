@@ -1049,3 +1049,23 @@ def test_a_snapshot_saved_with_the_marker_token_is_cleaned_before_it_is_compared
     else:
         assert [c.kind for c in result.diff.changes] == ["changed"]
     assert TOKEN not in str(store.load_changelog(cfg.state_dir))
+
+
+def test_the_cleaning_walks_every_kind_of_container():
+    bad = f"x\ud800{TOKEN}y"
+    good = "x\ufffdhomelabscribe-notes:y"
+    data = {
+        bad: [bad, (bad, 1), {bad}, frozenset({bad, 2.5})],
+        "t": (bad, [bad], {bad: (bad,)}, frozenset({(bad, None)})),
+        "s": {bad, (bad, bad)},
+        "n": [None, True, 3],
+    }
+    out = pipeline._value_without_surrogates_or_markers(data)
+    assert out == {
+        good: [good, (good, 1), {good}, frozenset({good, 2.5})],
+        "t": (good, [good], {good: (good,)}, frozenset({(good, None)})),
+        "s": {good, (good, good)},
+        "n": [None, True, 3],
+    }
+    assert type(out[good][1]) is tuple and type(out[good][2]) is set and type(out[good][3]) is frozenset
+    assert type(out["t"]) is tuple and type(out["t"][1]) is list and type(out["s"]) is set

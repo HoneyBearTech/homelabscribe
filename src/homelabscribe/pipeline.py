@@ -65,11 +65,15 @@ def without_surrogates_or_markers(text: str) -> str:
 
 
 def _value_without_surrogates_or_markers(value):
-    """`value` with every str in it, dict keys included, passed through `without_surrogates_or_markers`."""
+    """`value` with every str in it, dict keys included, passed through `without_surrogates_or_markers`.
+
+    Lists, tuples, sets, frozensets and dicts are walked and given back as the same kind.
+    """
     if isinstance(value, str):
         return without_surrogates_or_markers(value)
-    if isinstance(value, list):
-        return [_value_without_surrogates_or_markers(v) for v in value]
+    if isinstance(value, list | tuple | set | frozenset):
+        kind = next(k for k in (list, tuple, set, frozenset) if isinstance(value, k))
+        return kind(_value_without_surrogates_or_markers(v) for v in value)
     if isinstance(value, dict):
         return {
             _value_without_surrogates_or_markers(k): _value_without_surrogates_or_markers(v)
