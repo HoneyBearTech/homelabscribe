@@ -27,6 +27,7 @@ from markdown_it import MarkdownIt
 from markdown_it.common.utils import escapeHtml
 
 from homelabscribe import notes
+from homelabscribe.skip import Skip
 
 GENERATOR = "HomelabScribe static HTML copy"
 # A file in `html_dir` is ours only if its head carries this line, where the page template puts it: a file
@@ -344,7 +345,7 @@ class Export:
 
     pages: int = 0  # pages that now have an up-to-date HTML file
     changed: list[Path] = field(default_factory=list)  # HTML files written or removed
-    skipped: list[str] = field(default_factory=list)  # pages that were not exported, and why
+    skipped: list[Skip] = field(default_factory=list)  # pages that were not exported, and why
 
 
 def _place(root: Path, rel: PurePosixPath, data: bytes) -> str:
@@ -458,7 +459,7 @@ def export(output_dir: Path, html_dir: Path, generated: Iterable[Path]) -> Expor
         source = _regular_file(output_dir, rel)
         raw = _read(source) if source is not None else None
         if raw is None:
-            result.skipped.append(f"{name} (the page is a symbolic link or could not be read)")
+            result.skipped.append(Skip(name, "the page is a symbolic link or could not be read"))
             continue
         page = page_html(raw.decode(errors="replace"), name, sources.keys())
         outcome = _place(html_dir, target, page.encode())
@@ -467,7 +468,7 @@ def export(output_dir: Path, html_dir: Path, generated: Iterable[Path]) -> Expor
         if outcome in ("written", "unchanged"):
             result.pages += 1
         else:
-            result.skipped.append(f"{target.as_posix()} ({outcome})")
+            result.skipped.append(Skip(target.as_posix(), outcome))
 
     # An HTML file of ours whose page is gone is removed. Regular files only; linked folders are not entered.
     for folder, folders, files in os.walk(html_dir, followlinks=False):

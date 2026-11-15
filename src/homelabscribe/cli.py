@@ -10,6 +10,7 @@ import typer
 
 from homelabscribe import __version__, licensing, notify, pipeline
 from homelabscribe.config import Config, load_config
+from homelabscribe.skip import Skip
 
 app = typer.Typer(
     add_completion=False, no_args_is_help=True, help="Documentation for your homelab that writes itself."
@@ -42,13 +43,12 @@ def _report_scan(result: pipeline.ScanResult, seen: set[str] | None = None) -> N
         typer.echo(f"{len(result.diff.changes)} change(s) since the last scan.")
 
 
-def _report_file_skips(lines: list[str], seen: set[str]) -> None:
+def _report_file_skips(skips: list[Skip], seen: set[str]) -> None:
     """One line per file: a path already printed in this run (`seen`) is not printed again."""
-    for line in lines:
-        path = line.split(" (", 1)[0]
-        if path not in seen:
-            seen.add(path)
-            typer.secho(f"  skipped: {line}", fg="yellow")
+    for skip in skips:
+        if skip.path not in seen:
+            seen.add(skip.path)
+            typer.secho(f"  skipped: {skip}", fg="yellow")
 
 
 def _report_rendered(rendered: pipeline.Rendered, cfg: Config, seen: set[str] | None = None) -> None:

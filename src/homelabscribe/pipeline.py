@@ -14,6 +14,7 @@ from homelabscribe.diff import Diff, compare
 from homelabscribe.enrich import enrich, link_guests, link_routes, load_catalog
 from homelabscribe.models import Host, Service, Snapshot
 from homelabscribe.renderer import Renderer, replace_surrogates
+from homelabscribe.skip import Skip
 
 
 @dataclass
@@ -22,7 +23,7 @@ class ScanResult:
     diff: Diff | None
     skipped: list[str] = field(default_factory=list)  # sources skipped (license or error)
     errors: list[str] = field(default_factory=list)
-    file_skips: list[str] = field(default_factory=list)  # state files left alone, as `<file> (<reason>)`
+    file_skips: list[Skip] = field(default_factory=list)  # state files left alone, as `<file> (<reason>)`
 
 
 class StateFolderError(Exception):
@@ -106,7 +107,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
     snap = Snapshot()
     skipped: list[str] = []
     errors: list[str] = []
-    file_skips: list[str] = []
+    file_skips: list[Skip] = []
 
     if not store.writable(cfg.state_dir):  # before the lab is queried for nothing
         raise StateFolderError("the snapshot folder in the state folder cannot be written")
@@ -183,7 +184,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
                 try:
                     store.save_changelog(log, cfg.state_dir)
                 except OSError:
-                    file_skips.append("changelog.json (could not be written, left as it is)")
+                    file_skips.append(Skip("changelog.json", "could not be written, left as it is"))
     return ScanResult(snapshot=snap, diff=diff, skipped=skipped, errors=errors, file_skips=file_skips)
 
 
@@ -191,7 +192,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
 class Rendered:
     written: list[Path]  # Markdown files that changed
     html: htmlsite.Export | None = None  # the static HTML copy, when `html_dir` is set
-    skipped: list[str] = field(default_factory=list)  # files left alone, as `<file> (<reason>)`
+    skipped: list[Skip] = field(default_factory=list)  # files left alone, as `<file> (<reason>)`
 
 
 def html_dir_problem(cfg: Config) -> str | None:
@@ -210,7 +211,7 @@ def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | Non
     problem = html_dir_problem(cfg)
     if problem:  # before anything is written
         raise ValueError(problem)
-    skipped: list[str] = []
+    skipped: list[Skip] = []
     if snapshot is None:
         latest = store.recent(cfg.state_dir, 1, skipped)
         if not latest:

@@ -1,8 +1,8 @@
 """Snapshots are plain JSON files, one per scan, so they're easy to inspect, diff and back up.
 
 Every file is written to a temporary file and then swapped in, so a write that fails leaves the old file.
-A file that cannot be read is skipped and reported (as `<path below the state folder> (<reason>)` in the
-optional `skipped` list); it never stops the run.
+A file that cannot be read is skipped and reported (a `Skip`: `<path below the state folder> (<reason>)`,
+in the optional `skipped` list); it never stops the run.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from pathlib import Path
 
 from homelabscribe import fsutil
 from homelabscribe.models import Snapshot
+from homelabscribe.skip import Skip
 
 KEEP = 60  # roughly two months of daily scans
 
@@ -46,7 +47,7 @@ def save(snapshot: Snapshot, state_dir: Path) -> Path:
     return path
 
 
-def recent(state_dir: Path, n: int = 2, skipped: list[str] | None = None) -> list[Snapshot]:
+def recent(state_dir: Path, n: int = 2, skipped: list[Skip] | None = None) -> list[Snapshot]:
     """The newest `n` snapshots that can be read, newest first. A damaged one is skipped and left in place."""
     found: list[Snapshot] = []
     for f in sorted((state_dir / "snapshots").glob("*.json"), reverse=True):
@@ -57,7 +58,7 @@ def recent(state_dir: Path, n: int = 2, skipped: list[str] | None = None) -> lis
         except (OSError, ValueError) as e:
             if skipped is not None:
                 why = "could not be read" if isinstance(e, OSError) else "damaged or not a snapshot"
-                skipped.append(f"snapshots/{f.name} ({why})")
+                skipped.append(Skip(f"snapshots/{f.name}", why))
     return found
 
 
@@ -152,7 +153,7 @@ def _move_aside(path: Path) -> str | None:
     return None
 
 
-def load_changelog(state_dir: Path, skipped: list[str] | None = None) -> list[dict]:
+def load_changelog(state_dir: Path, skipped: list[Skip] | None = None) -> list[dict]:
     """The entries of changelog.json. A file that cannot be used is moved aside and an empty list returned.
 
     Raises ChangelogBlocked when it cannot be used and cannot be moved aside either: it stays as it is.
@@ -170,7 +171,7 @@ def load_changelog(state_dir: Path, skipped: list[str] | None = None) -> list[di
     moved = _move_aside(path)
     if skipped is not None:
         note = f"moved to {moved}" if moved else "could not be moved aside, left as it is"
-        skipped.append(f"changelog.json ({why}; {note})")
+        skipped.append(Skip("changelog.json", f"{why}; {note}"))
     if moved is None or os.path.lexists(path):
         raise ChangelogBlocked
     return []
