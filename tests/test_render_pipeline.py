@@ -1069,3 +1069,85 @@ def test_the_cleaning_walks_every_kind_of_container():
     }
     assert type(out[good][1]) is tuple and type(out[good][2]) is set and type(out[good][3]) is frozenset
     assert type(out["t"]) is tuple and type(out["t"][1]) is list and type(out["s"]) is set
+
+
+# ---- names from the config are matched in their cleaned form ---------------------------------------
+
+
+@pytest.mark.parametrize("suffix", [f"{TOKEN}x", "\udcff"])  # "\udcff": a byte that is not UTF-8 in ${VAR}
+def test_an_outage_keeps_what_was_last_known_of_a_source_whose_name_needs_cleaning(
+    tmp_path, monkeypatch, suffix
+):
+    from test_collectors import FakeDockerClient
+
+    from homelabscribe.collectors.docker import DockerCollector
+    from homelabscribe.collectors.npm import NpmCollector
+    from homelabscribe.config import load_config
+    from homelabscribe.models import Route
+
+    monkeypatch.setenv("LAB_SUFFIX", suffix)
+    path = tmp_path / "homelabscribe.yaml"
+    path.write_text(
+        f"output_dir: {tmp_path / 'docs'}\nstate_dir: {tmp_path / 'state'}\n"
+        "docker_hosts:\n  - {name: 'nova-${LAB_SUFFIX}', url: 'tcp://fake:2375'}\n"
+        "npm:\n  - {name: 'proxy-${LAB_SUFFIX}', url: 'http://npm.example.test:81', identity: i, secret: s}\n"
+        "manual_services:\n  - {name: printer, host: 'nova-${LAB_SUFFIX}'}\n"
+    )
+    cfg = load_config(path)
+    host, proxy = cfg.docker_hosts[0].name, cfg.npm[0].name
+    assert (host, proxy) == (f"nova-{suffix}", f"proxy-{suffix}")  # as written, never changed
+    route = Route(proxy=proxy, domains=["tv.example.test"], forward_host=host, forward_port=8989)
+    monkeypatch.setattr(DockerCollector, "client", property(lambda self: FakeDockerClient()))
+    monkeypatch.setattr(NpmCollector, "collect", lambda self: [route.model_copy()])
+    good = pipeline.scan(cfg, licensing.PRO_FEATURES).snapshot
+    assert len(good.hosts) == 1 and len(good.services) == 2 and len(good.routes) == 1
+
+    def down(self):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(DockerCollector, "client", property(down))
+    monkeypatch.setattr(NpmCollector, "collect", down)
+    result = pipeline.scan(cfg, licensing.PRO_FEATURES)
+    assert len(result.errors) == 2 and f"'{host}'" in result.errors[0]  # messages show the name as written
+    assert result.diff is not None and result.diff.empty
+    now = result.snapshot
+    assert now.model_dump(include={"hosts", "routes"}) == good.model_dump(include={"hosts", "routes"})
+    # A hand-described service on a host that is kept is listed twice; so it is on the default branch too.
+    assert {s.model_dump_json() for s in now.services} == {s.model_dump_json() for s in good.services}
+
+
+def test_critical_services_named_in_the_config_are_found_by_their_cleaned_names(tmp_path):
+    from homelabscribe.config import BreakGlassConfig
+
+    title = f"Alpha {TOKEN}x"
+    cfg = Config(
+        output_dir=tmp_path / "docs",
+        state_dir=tmp_path / "state",
+        breakglass=BreakGlassConfig(critical=[title]),
+    )
+    lab = Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[
+            Service(name="alpha", host="nova", kind="container", display_name=title),
+            Service(name="beta", host="nova", kind="container", display_name="Beta"),
+        ],
+    )
+    pipeline.render(cfg, licensing.PRO_FEATURES, pipeline.snapshot_without_surrogates_or_markers(lab))
+    page = (tmp_path / "docs" / "break-glass.md").read_text()
+    assert "Alpha homelabscribe-notes:x" in page and "Beta" not in page
+    assert cfg.breakglass.critical == [title]  # the config itself is not changed
+
+
+def test_a_host_another_source_returned_is_not_kept_twice_when_its_name_needs_cleaning():
+    from homelabscribe.collectors.docker import DockerCollector
+
+    name = f"nova-{TOKEN}x"
+    previous = pipeline.snapshot_without_surrogates_or_markers(
+        Snapshot(
+            hosts=[Host(name=name, kind="docker")],
+            services=[Service(name="web", host=name, kind="container")],
+        )
+    )
+    scanned = Snapshot(hosts=[Host(name=name, kind="proxmox-node")])  # as the new scan returned it
+    collector = DockerCollector(DockerHostConfig(name=name, url="tcp://fake:2375"))
+    assert pipeline._carry_over(previous, collector, scanned) == ([], [])

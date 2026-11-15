@@ -39,14 +39,18 @@ def _reason(e: Exception) -> str:
 
 
 def _carry_over(previous: Snapshot, collector, snap: Snapshot) -> tuple[list[Host], list[Service]]:
-    """The last known hosts and services of a source that just failed, if we can tell which they were."""
+    """The last known hosts and services of a source that just failed, if we can tell which they were.
+
+    `previous` is cleaned, so names from the config and from the new scan are compared in their cleaned form.
+    """
     if isinstance(collector, DockerCollector):
-        hosts = [h for h in previous.hosts if h.kind == "docker" and h.name == collector.cfg.name]
+        name = without_surrogates_or_markers(collector.cfg.name)
+        hosts = [h for h in previous.hosts if h.kind == "docker" and h.name == name]
     elif isinstance(collector, ProxmoxCollector):
         hosts = [h for h in previous.hosts if h.kind == "proxmox-node"]
     else:
         return [], []
-    present = {h.name for h in snap.hosts}
+    present = {without_surrogates_or_markers(h.name) for h in snap.hosts}
     hosts = [h for h in hosts if h.name not in present]
     names = {h.name for h in hosts}
     return hosts, [s for s in previous.services if s.host in names]
@@ -129,7 +133,10 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         snap.services += services
 
     if cfg.manual_services:
-        manual_hosts, manual_services = manual.build(cfg.manual_services, {h.name for h in snap.hosts})
+        known = {h.name for h in snap.hosts}
+        cleaned = {without_surrogates_or_markers(n) for n in known}  # a host kept from `previous` is cleaned
+        known |= {e.host for e in cfg.manual_services if without_surrogates_or_markers(e.host) in cleaned}
+        manual_hosts, manual_services = manual.build(cfg.manual_services, known)
         snap.hosts += manual_hosts
         snap.services += manual_services
 
@@ -142,7 +149,8 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         except Exception as e:  # a proxy that is down shouldn't stop the scan
             errors.append(f"Nginx Proxy Manager '{proxy.name}': {type(e).__name__}")
             if previous:
-                snap.routes += [r for r in previous.routes if r.proxy == proxy.name]
+                name = without_surrogates_or_markers(proxy.name)  # `previous` is cleaned
+                snap.routes += [r for r in previous.routes if r.proxy == name]
     link_routes(snap.routes, snap.hosts, snap.services)
     snap = snapshot_without_surrogates_or_markers(snap)
 
@@ -186,7 +194,10 @@ def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | Non
             raise RuntimeError("No snapshot yet. Run `homelabscribe scan` first.")
         snapshot = latest[0]
     r = Renderer(cfg.output_dir, features)
-    written = r.render(snapshot, store.load_changelog(cfg.state_dir), cfg.breakglass)
+    # The names of the critical services are compared with the cleaned names in the snapshot.
+    critical = [without_surrogates_or_markers(n) for n in cfg.breakglass.critical]
+    breakglass = cfg.breakglass.model_copy(update={"critical": critical})
+    written = r.render(snapshot, store.load_changelog(cfg.state_dir), breakglass)
     html = htmlsite.export(cfg.output_dir, cfg.html_dir, r.generated) if cfg.html_dir is not None else None
     return Rendered(written=written, html=html)
 
