@@ -8,6 +8,7 @@ from __future__ import annotations
 
 START = "<!-- homelabscribe:notes:start -->"
 END = "<!-- homelabscribe:notes:end -->"
+MARKER_TOKEN = "homelabscribe:notes:"  # part of both markers: a text without it cannot hold one
 PLACEHOLDER = "_Your notes go here. HomelabScribe never overwrites this section._"
 
 

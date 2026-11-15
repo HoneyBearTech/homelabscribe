@@ -948,9 +948,104 @@ def test_a_cleaned_snapshot_with_any_text_is_saved_and_read_back(tmp_path_factor
         ],
         routes=[Route(proxy=t[9], domains=[t[10]], forward_host=t[11], forward_port=1)],
     )
-    cleaned = pipeline.clean_snapshot(snap)
+    cleaned = pipeline.snapshot_without_surrogates_or_markers(snap)
     state = tmp_path_factory.mktemp("state")
     store.save(cleaned, state)
     assert store.recent(state, 1) == [cleaned]
-    if not any(renderer_module._SURROGATES.search(x) for x in _texts(snap.model_dump())):
+    texts = _texts(snap.model_dump())
+    if not any(renderer_module._SURROGATES.search(x) or "homelabscribe:notes:" in x for x in texts):
         assert cleaned == snap
+
+
+# ---- text from the lab is never taken for the notes block -----------------------------------------
+
+PAIR = f"{notes.START} FAKE {notes.END}"
+TOKEN = "homelabscribe:notes:"  # what every marker needs
+assert TOKEN in notes.START and TOKEN in notes.END
+
+
+def _marked_lab(image: str) -> Snapshot:
+    return Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[
+            Service(
+                name="alpha",
+                host="nova",
+                kind="container",
+                image=image,
+                display_name=f"Alpha {PAIR}",
+                description=f"Alpha does things {PAIR}",
+                labels={"com.example.note": f"see {PAIR}"},
+            ),
+            Service(name="beta", host="nova", kind="container", description=f"Beta {notes.START} half"),
+        ],
+    )
+
+
+def test_markers_in_lab_text_never_replace_the_notes(tmp_path):
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    pro = licensing.PRO_FEATURES
+    pipeline.scan(cfg, pro, collectors=[("lab", FakeCollector(_marked_lab(f"a:1 {PAIR}")))])
+    pipeline.render(cfg, pro)
+    service = tmp_path / "docs" / "services" / f"{slug(f'Alpha {PAIR}')}.md"
+    changelog = tmp_path / "docs" / "CHANGELOG.md"
+    _with_notes(service, "Alpha's notes.")
+    _with_notes(changelog, "Changelog notes.")
+
+    pipeline.scan(cfg, pro, collectors=[("lab", FakeCollector(_marked_lab(f"a:2 {PAIR}")))])
+    pipeline.render(cfg, pro)
+    assert "a:2" in changelog.read_text()  # an entry with text from the lab
+    sizes = {p: p.stat().st_size for p in (tmp_path / "docs").rglob("*.md")}
+    assert pipeline.render(cfg, pro) == []
+    assert "Alpha's notes." in service.read_text() and "Changelog notes." in changelog.read_text()
+    for page, size in sizes.items():
+        text = page.read_text()
+        assert text.count(notes.START) == text.count(notes.END) == 1, page
+        assert page.stat().st_size <= size, page
+
+
+_token_text = st.lists(
+    st.sampled_from(
+        [
+            TOKEN,
+            "homelabscribe",
+            ":notes:",
+            "homelabscribe-notes:",
+            ":",
+            "-",
+            "\ud800",
+            notes.START,
+        ]
+    )
+    | st.text(alphabet=st.characters(codec=None), max_size=8),
+    max_size=8,
+).map("".join)
+
+
+@settings(max_examples=300, deadline=None)
+@given(_token_text)
+def test_cleaned_text_never_holds_the_marker_token(text):
+    cleaned = pipeline.without_surrogates_or_markers(text)
+    assert TOKEN not in cleaned and not renderer_module._SURROGATES.search(cleaned)
+    if TOKEN not in text and not renderer_module._SURROGATES.search(text):
+        assert cleaned == text
+
+
+@pytest.mark.parametrize("new_image", [f"img:1 {TOKEN}x", f"img:2 {TOKEN}x"])
+def test_a_snapshot_saved_with_the_marker_token_is_cleaned_before_it_is_compared(tmp_path, new_image):
+    from homelabscribe import store
+
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    old = _marked_lab(f"img:1 {TOKEN}x")
+    store.save(old, cfg.state_dir)  # as a version before the cleaning would have saved it
+    assert TOKEN in (next((cfg.state_dir / "snapshots").glob("*.json"))).read_text()
+
+    result = pipeline.scan(
+        cfg, licensing.PRO_FEATURES, collectors=[("lab", FakeCollector(_marked_lab(new_image)))]
+    )
+    assert result.diff is not None
+    if new_image == old.services[0].image:
+        assert result.diff.empty  # the cleaning alone is not a change
+    else:
+        assert [c.kind for c in result.diff.changes] == ["changed"]
+    assert TOKEN not in str(store.load_changelog(cfg.state_dir))

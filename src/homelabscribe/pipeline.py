@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from homelabscribe import htmlsite, manual, store
+from homelabscribe import htmlsite, manual, notes, store
 from homelabscribe.collectors.docker import DockerCollector
 from homelabscribe.collectors.npm import NpmCollector
 from homelabscribe.collectors.proxmox import ProxmoxCollector
@@ -52,24 +52,41 @@ def _carry_over(previous: Snapshot, collector, snap: Snapshot) -> tuple[list[Hos
     return hosts, [s for s in previous.services if s.host in names]
 
 
-def _without_surrogates(value):
-    """`value` with every lone surrogate in every str in it, dict keys included, replaced by U+FFFD."""
+_HARMLESS_TOKEN = "homelabscribe-notes:"  # what the notes-marker token in lab text becomes
+
+
+def without_surrogates_or_markers(text: str) -> str:
+    """The text with U+FFFD for every lone surrogate and without the token every notes marker needs.
+
+    Each `homelabscribe:notes:` becomes `homelabscribe-notes:`, so text from the lab cannot be taken for
+    the notes block of a page. One pass is enough: the replacement cannot form a new token.
+    """
+    return replace_surrogates(text).replace(notes.MARKER_TOKEN, _HARMLESS_TOKEN)
+
+
+def _value_without_surrogates_or_markers(value):
+    """`value` with every str in it, dict keys included, passed through `without_surrogates_or_markers`."""
     if isinstance(value, str):
-        return replace_surrogates(value)
+        return without_surrogates_or_markers(value)
     if isinstance(value, list):
-        return [_without_surrogates(v) for v in value]
+        return [_value_without_surrogates_or_markers(v) for v in value]
     if isinstance(value, dict):
-        return {_without_surrogates(k): _without_surrogates(v) for k, v in value.items()}
+        return {
+            _value_without_surrogates_or_markers(k): _value_without_surrogates_or_markers(v)
+            for k, v in value.items()
+        }
     return value
 
 
-def clean_snapshot(snap: Snapshot) -> Snapshot:
-    """A copy of the snapshot that can be saved: text read from a source may hold a lone surrogate.
+def snapshot_without_surrogates_or_markers(snap: Snapshot) -> Snapshot:
+    """A copy of the snapshot that can be saved and rendered: text read from a source may hold a lone
+    surrogate, or a notes marker.
 
     The snapshot is turned into plain lists, dicts and values, cleaned, and read back into the models, so
     every field of every model is covered, fields added later included.
+    Not covered: a snapshot handed to a Renderer directly; entries already in changelog.json are kept as is.
     """
-    return Snapshot.model_validate(_without_surrogates(snap.model_dump()))
+    return Snapshot.model_validate(_value_without_surrogates_or_markers(snap.model_dump()))
 
 
 def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
@@ -90,7 +107,8 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
             collectors += [(f"Proxmox '{p.name}'", ProxmoxCollector(p)) for p in cfg.proxmox]
 
     last = store.recent(cfg.state_dir, 1)
-    previous = last[0] if last else None
+    # Cleaned as the new one is: older text cannot bring a marker in, and the cleaning is not a change.
+    previous = snapshot_without_surrogates_or_markers(last[0]) if last else None
 
     for label, collector in collectors:
         try:
@@ -122,7 +140,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
             if previous:
                 snap.routes += [r for r in previous.routes if r.proxy == proxy.name]
     link_routes(snap.routes, snap.hosts, snap.services)
-    snap = clean_snapshot(snap)
+    snap = snapshot_without_surrogates_or_markers(snap)
 
     store.save(snap, cfg.state_dir)
 
