@@ -165,3 +165,18 @@ def test_a_changelog_that_cannot_be_moved_aside_is_not_written_over(config, tmp_
     result = runner.invoke(app, ["scan", "-c", str(config)])
     assert result.exit_code == 0 and "skipped: changelog.json (damaged" in result.output
     assert (state / "changelog.json").read_text() == "[{"
+
+
+def test_a_blocked_changelog_is_printed_once_in_a_run(config, tmp_path):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    state = tmp_path / "state"
+    (state / "changelog.json").write_text("[{")
+    for name in ["changelog.json.damaged", *(f"changelog.json.damaged-{n}" for n in range(2, 1000))]:
+        (state / name).write_text("older")
+    (snap,) = (state / "snapshots").glob("*.json")
+    data = json.loads(snap.read_text())
+    data["services"] = []
+    snap.write_text(json.dumps(data))
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert result.output.count("skipped: changelog.json") == 1
