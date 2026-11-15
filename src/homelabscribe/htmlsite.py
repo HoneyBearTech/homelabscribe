@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
+import yaml
 from jinja2 import Environment, PackageLoader
 from markdown_it import MarkdownIt
 from markdown_it.common.utils import escapeHtml
@@ -178,8 +179,26 @@ _HEADING = re.compile(r"#{1,6}[ \t]")
 _TITLE = re.compile(r"title:[ \t]*(.*)")
 
 
+def _quoted_text(value: str) -> str | None:
+    """The text of a value that is one complete quoted YAML scalar, else None."""
+    if len(value) < 2 or value[0] not in "\"'" or value[-1] != value[0]:
+        return None
+    try:
+        node = yaml.compose(value, Loader=yaml.SafeLoader)
+        if node is None or node.style != value[0] or node.end_mark.index != len(value):
+            return None
+        text = yaml.safe_load(value)
+    except Exception:  # noqa: BLE001 - bad front matter must never stop the export
+        return None
+    return text if isinstance(text, str) else None
+
+
 def split_front_matter(text: str) -> tuple[str | None, str]:
     """(title, body). The front matter is not parsed as YAML: the title is the text after `title:`.
+
+    Only that one value is looked at more closely: when it is a single complete quoted scalar (as the
+    renderer writes a title that needs quotes), the title is the text inside the quotes, with the
+    escapes resolved. Any other value is used as written, and a value that does not parse is too.
 
     Front matter that does not close is not front matter, so the whole text is the body.
     """
@@ -193,7 +212,9 @@ def split_front_matter(text: str) -> tuple[str | None, str]:
     for line in lines[1:end]:
         m = _TITLE.fullmatch(line.rstrip("\r\n"))
         if m:
-            title = m.group(1).strip() or None
+            value = m.group(1).strip()
+            quoted = _quoted_text(value)
+            title = (value if quoted is None else quoted) or None
             break
     return title, "".join(lines[end + 1 :])
 
