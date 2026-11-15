@@ -36,6 +36,7 @@ from homelabscribe.models import Host, Route, Service, Snapshot
 
 runner = CliRunner()
 
+DIGITS = "918273645"  # the same for numbers: a recognisable run of digits no real output contains
 MARK = "ZZ9LEAK7QX"  # a fixed prefix no real output contains; every seeded text starts with it
 _VERIFY = licensing.verify  # the real check, before a test points it at its own key pair
 
@@ -175,6 +176,50 @@ def test_b1_a_folder_that_is_missing_is_reported_without_a_traceback(tmp_path, m
 
 
 # ---- B2: what the archive holds ---------------------------------------------------------------
+
+
+def test_b1_a_write_that_fails_leaves_no_file_behind(tmp_path, monkeypatch):
+    Servers(monkeypatch)
+    out = tmp_path / "bundle.zip"
+    real_open = Path.open
+
+    class Full:
+        def __init__(self, f):
+            self.f = f
+
+        def write(self, data):
+            self.f.write(data[:10])  # a partial file
+            raise OSError(28, "No space left on device")
+
+        def close(self):
+            self.f.close()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.f.close()
+
+    def fake_open(self, mode="r", *args, **kwargs):
+        f = real_open(self, mode, *args, **kwargs)
+        return Full(f) if self == out and mode == "xb" else f
+
+    monkeypatch.setattr(Path, "open", fake_open)
+    cfg = load_config(_config(tmp_path))
+    with pytest.raises(OSError, match="No space"):
+        bundle.create(cfg, None, [], out)
+    assert not out.exists()
+    monkeypatch.setattr(Path, "open", real_open)
+    assert bundle.create(cfg, None, [], out) == out and out.exists()  # the next run is not refused
+
+
+def test_b1_a_file_this_call_did_not_create_is_never_removed(tmp_path, monkeypatch):
+    out = tmp_path / "bundle.zip"
+    out.write_bytes(b"mine")
+    cfg = load_config(_config(tmp_path))
+    with pytest.raises(FileExistsError):
+        bundle.create(cfg, None, [], out)
+    assert out.read_bytes() == b"mine"
 
 
 def test_b2_archive_holds_five_text_files_and_a_readme_that_says_read_first(tmp_path, monkeypatch):
@@ -456,6 +501,22 @@ def test_b5_values_a_server_sent_are_kept_only_in_a_fixed_form():
     ]
 
 
+def test_b5_a_version_is_kept_only_as_a_short_dotted_number():
+    for kept in ("27.3.1", "8.2.4", "20.10.24", "9", "1.2", "1234.5678.9012"):
+        assert bundle.version_number(kept) == kept
+    for suffixed, number in (("27.3.1-ce", "27.3.1"), ("8.2.4~1", "8.2.4"), ("27.3 (nova)", "27.3")):
+        assert bundle.version_number(suffixed) == number
+    for odd in ("192.168.77.10", "10.0.0.1", "1.2.3.4.5", "27.3.1.4", "12345", "1.12345", "27.3.1.9-ce"):
+        assert bundle.version_number(odd) == "unknown"  # never cut down to its first parts
+
+
+def test_b5_a_count_is_kept_only_from_0_to_999999():
+    for kept in (0, 12, 999_999, "0", "12", "999999"):
+        assert bundle.whole_number(kept) == int(kept)
+    for odd in (1_000_000, "1000000", 918273645, "918273645", -1, True, False, 1.5, "-1", None):
+        assert bundle.whole_number(odd) == "unknown"
+
+
 def test_b5_license_line_is_one_of_five_fixed_texts_without_email_or_date(tmp_path, monkeypatch):
     Servers(monkeypatch)
     lines = {}
@@ -686,6 +747,24 @@ def test_b7_a_newest_snapshot_that_cannot_be_read_is_reported_and_the_bundle_is_
     assert "nova-secret" not in text and archive.namelist() == list(bundle.MEMBERS)
 
 
+def test_b7_a_newest_snapshot_that_cannot_be_summarised_is_reported_and_the_bundle_is_written(
+    tmp_path, monkeypatch
+):
+    Servers(monkeypatch)
+    state = tmp_path / "state"
+    _save(state, _lab(), "20261103T073000Z.json")
+    odd = _lab().model_dump_json().replace("2026-11-03T07:30:00Z", "0001-01-01T00:00:00+05:00")
+    assert "0001-01-01T00:00:00+05:00" in odd
+    _save(state, odd, "20261104T073000Z.json")
+    assert Snapshot.model_validate_json(odd)  # it validates; only summarising it fails
+    expected = {"snapshots": 2, "newest": {"readable": False, "error": "OverflowError"}}
+    assert bundle.snapshot_summary(state) == expected
+    result, archive = _bundle(tmp_path, _config(tmp_path))
+    assert result.exit_code == 0 and "Traceback" not in result.output
+    assert json.loads(_text(archive, "snapshot-summary.json")) == expected
+    assert archive.namelist() == list(bundle.MEMBERS)
+
+
 def test_b7_a_snapshot_file_that_is_not_text_is_reported_by_the_type_of_the_error(tmp_path):
     path = _save(tmp_path, "", "20261104T073000Z.json")
     path.write_bytes(b"\xff\xfe\x00\x01")
@@ -817,7 +896,7 @@ def _value(annotation, name: str, marks: Marks, urls: bool):
     if annotation is bool:
         return True
     if annotation is int:
-        return 8006
+        return 8006 if name.endswith("port") else int(DIGITS)  # a port stays a port
     if annotation is float:
         return 1.5
     if annotation is datetime:
@@ -852,6 +931,7 @@ def _assert_no_marker(path: Path) -> zipfile.ZipFile:
     for info in archive.infolist():
         content = archive.read(info).decode()
         assert MARK.lower() not in content.lower(), info.filename
+        assert DIGITS not in content and DIGITS[:3] not in info.filename, info.filename
         assert MARK.lower() not in info.filename.lower()
         assert info.comment == b"" and info.extra == b""
     return archive
@@ -867,6 +947,10 @@ def test_b11_no_seeded_marker_reaches_the_archive(tmp_path, monkeypatch, license
     data = _fill(Config, marks, urls)
     seeded = marks.count
     assert seeded >= 40  # every text field of every config model, two entries per list
+    # A key the config model does not know, as a key and as a value, at the top and inside a nested entry.
+    data[f"{MARK}-unknown-key"] = marks.text("unknown-value")
+    data["docker_hosts"][0][f"{MARK}-nested-unknown-key"] = marks.text("nested-unknown-value")
+    data["proxmox"][1][f"{MARK}-nested-unknown-list-key"] = {marks.text("deep-key"): marks.text("deep-value")}
     if license_kind != "garbage":
         expires = None if license_kind == "valid" else date.today() - timedelta(days=1)
         data["license_key"] = _license(monkeypatch, f"{MARK}-owner@example.com", expires)
@@ -894,12 +978,13 @@ def test_b11_no_seeded_marker_reaches_the_archive(tmp_path, monkeypatch, license
     (output_dir / "services" / "plex.md").write_text(f"{notes.START}\n{MARK}-note\n{notes.END}\n")
     (state_dir / "changelog.json").write_text(json.dumps([{"at": f"{MARK}-at", "changes": []}]))
 
-    # Servers that answer with a marker as version and count, then fail with a marker in the error.
+    # Servers that answer with dotted numbers and large ints, or a marker, as version and count, then fail
+    # with a marker in the error.
     servers = Servers(monkeypatch)
     answers = {
         "docker": [
+            {"ServerVersion": f"{DIGITS[:3]}.{DIGITS[3:6]}.{DIGITS[6:]}.1", "Containers": int(DIGITS)},
             {"ServerVersion": f"{MARK}-27.3.1", "Containers": f"{MARK}-12"},
-            OSError(f"{MARK}-refused"),
         ],
         "npm": [3, RuntimeError(f"{MARK}-401")],
         "proxmox": [{"version": f"{MARK}-8.2.4"}, ConnectionError(f"{MARK}-unreachable")],
@@ -916,7 +1001,8 @@ def test_b11_no_seeded_marker_reaches_the_archive(tmp_path, monkeypatch, license
     result = runner.invoke(app, ["doctor", "-c", str(config), "--bundle", "-o", str(out)])
     finished = datetime.now(UTC)
     assert result.exit_code == 0, result.output
-    assert f"{MARK}-27.3.1" in result.output  # doctor itself still prints what the server said
+    assert f"{DIGITS[:3]}.{DIGITS[3:6]}" in result.output  # doctor itself still prints what the server said
+    assert f"{MARK}-27.3.1" in result.output
     archive = _assert_no_marker(out)
 
     # The members carry the time of the run and nothing else of the machine.
@@ -945,7 +1031,7 @@ def test_b11_no_seeded_marker_reaches_the_archive(tmp_path, monkeypatch, license
     assert _text(archive, "doctor.txt").splitlines()[2:] == [
         f"License:  {license_line[license_kind]}",
         "docker-host-1 (Docker host): OK (Docker unknown, unknown containers)",
-        "docker-host-2 (Docker host): FAILED (OSError)",
+        "docker-host-2 (Docker host): OK (Docker unknown, unknown containers)",
         "npm-1 (Nginx Proxy Manager): OK (3 proxy hosts)",
         "npm-2 (Nginx Proxy Manager): FAILED (RuntimeError)",
         "proxmox-1 (Proxmox): " + ("OK (PVE unknown)" if pro else "SKIPPED (needs Pro)"),
