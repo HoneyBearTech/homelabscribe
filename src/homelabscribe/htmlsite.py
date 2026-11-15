@@ -10,10 +10,12 @@ removed, and symbolic links are not followed.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import os
 import posixpath
 import re
+import secrets
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -30,6 +32,8 @@ GENERATOR = "HomelabScribe static HTML copy"
 # is owned when it starts with OWNED_START. Text further down a file can never make it ours.
 OWNED_LINE = f'<meta name="generator" content="{GENERATOR}">'
 OWNED_START = f'<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n{OWNED_LINE}\n'
+# A file being written beside its destination; it carries OWNED_START, so a leftover one is provably ours.
+TEMP_SUFFIX = ".homelabscribe-tmp"
 ARCHIVE_FOLDERS = ("services", "hosts")
 MERMAID_NOTE = (
     '<p class="note">This is a Mermaid diagram, shown here as its text. To see it drawn, open the Markdown '
@@ -326,19 +330,41 @@ def _place(root: Path, rel: PurePosixPath, data: bytes) -> str:
         if current == data:
             return "unchanged"
     folder.mkdir(parents=True, exist_ok=True)
+    # Nothing is ever written into an existing file: a hard link to it would carry the change to a copy
+    # outside `html_dir`, and a write cut short would leave a file that no longer starts with our line. A
+    # file of ours is replaced by a new file made beside it; a new file is only ever created, so a link or
+    # a file that appeared there in the meantime is not written to either.
+    target = dest
     try:
-        # A file of ours is opened without following a link; a new file is only ever created, so a link
-        # or a file that appeared there in the meantime is not written to either.
-        f = (
-            os.fdopen(os.open(dest, os.O_WRONLY | os.O_TRUNC | _NO_FOLLOW), "wb")
-            if replace
-            else dest.open("xb")
-        )
+        if replace:
+            target = folder / f".{rel.name}.{secrets.token_hex(8)}{TEMP_SUFFIX}"
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NO_FOLLOW, 0o666)
     except OSError:
         return "the file there could not be written"
+    done = False
+    try:
+        _write(fd, data)
+        if replace:
+            os.replace(target, dest)
+        done = True
+    except OSError:
+        pass
+    finally:
+        if not done:  # the temporary file, or the file this call created: never a file that was there before
+            with contextlib.suppress(OSError):
+                target.unlink()
+    return "written" if done else "the file there could not be written"
+
+
+def _write(fd: int, data: bytes) -> None:
+    """Write all of `data` to the open file and close it."""
+    try:
+        f = os.fdopen(fd, "wb")
+    except BaseException:
+        os.close(fd)
+        raise
     with f:
         f.write(data)
-    return "written"
 
 
 def _sources(output_dir: Path, generated: Iterable[Path]) -> dict[str, PurePosixPath]:
@@ -407,9 +433,13 @@ def export(output_dir: Path, html_dir: Path, generated: Iterable[Path]) -> Expor
         folders[:] = [f for f in folders if not Path(folder, f).is_symlink()]
         for file in files:
             path = Path(folder, file)
-            if not file.endswith(".html") or path.is_symlink() or not path.is_file():
+            if path.is_symlink() or not path.is_file():
                 continue
-            if path.relative_to(html_dir).as_posix() not in expected and _owned(_read(path, 512)):
-                path.unlink()
-                result.changed.append(path)
+            if file.endswith(TEMP_SUFFIX):  # left by a killed run: not a page, so not counted
+                if _owned(_read(path, 512)):
+                    path.unlink()
+            elif file.endswith(".html"):
+                if path.relative_to(html_dir).as_posix() not in expected and _owned(_read(path, 512)):
+                    path.unlink()
+                    result.changed.append(path)
     return result
