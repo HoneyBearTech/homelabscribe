@@ -197,13 +197,93 @@ def test_a_changelog_that_cannot_be_moved_aside_is_kept_and_blocks_the_new_one(t
     assert len(skipped) == 1 and "could not be moved aside" in skipped[0]
 
 
+def _no_links(monkeypatch):
+    def no_links(*a, **k):
+        raise OSError(errno.EPERM, "no hard links here")
+
+    monkeypatch.setattr(os, "link", no_links)
+
+
+def test_without_hard_links_the_damaged_changelog_is_copied_aside(tmp_path, monkeypatch):
+    f = tmp_path / "changelog.json"
+    f.write_bytes(b"[{")
+    f.chmod(0o640)
+    (tmp_path / "changelog.json.damaged").write_bytes(b"older")
+    _no_links(monkeypatch)
+    skipped = []
+    assert store.load_changelog(tmp_path, skipped) == []
+    assert not f.exists()
+    assert (tmp_path / "changelog.json.damaged").read_bytes() == b"older"
+    second = tmp_path / "changelog.json.damaged-2"
+    assert second.read_bytes() == b"[{" and second.stat().st_mode & 0o777 == 0o640
+    assert skipped == ["changelog.json (damaged or could not be read; moved to changelog.json.damaged-2)"]
+
+
+def test_a_copy_that_fails_partway_leaves_the_original_and_no_copy(tmp_path, monkeypatch):
+    f = tmp_path / "changelog.json"
+    f.write_bytes(b"[{")
+    _no_links(monkeypatch)
+    real = fsutil.fill
+
+    def half(fd, data):
+        real(fd, data[:1])
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(fsutil, "fill", half)
+    with pytest.raises(store.ChangelogBlocked):
+        store.load_changelog(tmp_path, [])
+    assert f.read_bytes() == b"[{" and [p.name for p in tmp_path.iterdir()] == ["changelog.json"]
+
+
+def test_a_copy_is_not_used_when_the_original_changed_meanwhile(tmp_path, monkeypatch):
+    f = tmp_path / "changelog.json"
+    f.write_bytes(b"[{")
+    _no_links(monkeypatch)
+    real = fsutil.fill
+
+    def fill_then_change(fd, data):
+        real(fd, data)
+        f.write_bytes(b"[{ and more")
+
+    monkeypatch.setattr(fsutil, "fill", fill_then_change)
+    with pytest.raises(store.ChangelogBlocked):
+        store.load_changelog(tmp_path, [])
+    assert f.read_bytes() == b"[{ and more" and [p.name for p in tmp_path.iterdir()] == ["changelog.json"]
+
+
+def test_a_link_that_cannot_be_followed_by_a_removal_is_taken_back(tmp_path, monkeypatch):
+    f = tmp_path / "changelog.json"
+    f.write_bytes(b"[{")
+    real = type(f).unlink
+
+    def unlink(self, *a, **k):
+        if self.name == "changelog.json":
+            raise PermissionError(errno.EACCES, "cannot remove")
+        real(self, *a, **k)
+
+    monkeypatch.setattr(type(f), "unlink", unlink)
+    skipped = []
+    with pytest.raises(store.ChangelogBlocked):
+        store.load_changelog(tmp_path, skipped)
+    assert f.read_bytes() == b"[{" and [p.name for p in tmp_path.iterdir()] == ["changelog.json"]
+    assert skipped == [
+        "changelog.json (damaged or could not be read; could not be moved aside, left as it is)"
+    ]
+
+
 def test_a_failed_move_never_falls_back_to_a_rename(tmp_path, monkeypatch):
     (tmp_path / "changelog.json").write_bytes(b"{")
 
     def no_links(*a, **k):
         raise OSError(errno.EPERM, "no hard links here")
 
+    def no_rename(*a, **k):
+        raise AssertionError("a rename can replace a name")
+
     monkeypatch.setattr(os, "link", no_links)
+    monkeypatch.setattr(os, "rename", no_rename)
+    monkeypatch.setattr(os, "replace", no_rename)
+    monkeypatch.setattr(os, "open", lambda *a, **k: (_ for _ in ()).throw(PermissionError()))
     with pytest.raises(store.ChangelogBlocked):
         store.load_changelog(tmp_path, [])
     assert (tmp_path / "changelog.json").read_bytes() == b"{"

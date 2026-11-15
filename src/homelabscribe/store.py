@@ -8,8 +8,10 @@ optional `skipped` list); it never stops the run.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
+import stat
 from datetime import datetime
 from pathlib import Path
 
@@ -78,22 +80,74 @@ class ChangelogBlocked(Exception):
     """changelog.json cannot be used and could not be moved aside, so it must not be written over."""
 
 
+def _name(path: Path, n: int) -> Path:
+    return path.with_name(path.name + (".damaged" if n == 1 else f".damaged-{n}"))
+
+
+def _copy_aside(path: Path) -> str | None:
+    """Where hard links are not possible: copy the file to the next free `.damaged` name, then remove it.
+
+    The copy is created new in one step (a taken name, even a link, is skipped for the next number), with
+    the original's permission bits, written in full and synced. The original is removed only if it is
+    still the same file with the same bytes. Any failure removes the copy and leaves the original as it is.
+    """
+    try:
+        st = os.lstat(path)
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    for n in range(1, 1000):
+        dest = _name(path, n)
+        try:
+            fd = os.open(dest, fsutil.NEW_FILE, st.st_mode & 0o777)
+        except FileExistsError:
+            continue
+        except OSError:
+            return None
+        try:
+            if hasattr(os, "fchmod"):
+                try:
+                    os.fchmod(fd, st.st_mode & 0o777)
+                except BaseException:
+                    os.close(fd)
+                    raise
+            fsutil.fill(fd, data)
+            now = os.lstat(path)
+            same = (now.st_ino, now.st_size, now.st_mtime_ns) == (st.st_ino, st.st_size, st.st_mtime_ns)
+            if not same or path.read_bytes() != data:
+                raise OSError(errno.EBUSY, "changed while it was copied")
+            path.unlink()
+        except (OSError, NotImplementedError):
+            with contextlib.suppress(OSError):
+                dest.unlink()  # our own partial copy, never a file that was there before
+            return None
+        return dest.name
+    return None
+
+
 def _move_aside(path: Path) -> str | None:
     """Move a changelog that cannot be used to `changelog.json.damaged` (then `-2`, `-3`; never replacing).
 
-    A hard link makes the new name and fails if the name is taken; only then is the old name removed.
-    Returns the new name, or None if it could not be moved.
+    A hard link makes the new name and fails if the name is taken; only then is the old name removed (and
+    if that fails, the new link is removed again). Where hard links are not possible the file is copied
+    instead. Returns the new name, or None if it could not be moved: the file is then as it was.
     """
     for n in range(1, 1000):
-        dest = path.with_name(path.name + (".damaged" if n == 1 else f".damaged-{n}"))
+        dest = _name(path, n)
         try:
             os.link(path, dest, follow_symlinks=False)
         except FileExistsError:
             continue
         except (OSError, NotImplementedError):
-            return None
-        with contextlib.suppress(OSError):
+            return _copy_aside(path)
+        try:
             path.unlink()
+        except OSError:
+            with contextlib.suppress(OSError):
+                dest.unlink()  # so a copy is not added on every run
+            return None
         return dest.name
     return None
 
@@ -115,7 +169,7 @@ def load_changelog(state_dir: Path, skipped: list[str] | None = None) -> list[di
         why = "damaged or could not be read"
     moved = _move_aside(path)
     if skipped is not None:
-        note = f"moved to {moved}" if moved else "could not be moved aside, left as it is and not changed"
+        note = f"moved to {moved}" if moved else "could not be moved aside, left as it is"
         skipped.append(f"changelog.json ({why}; {note})")
     if moved is None or os.path.lexists(path):
         raise ChangelogBlocked
