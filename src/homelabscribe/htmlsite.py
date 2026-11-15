@@ -338,7 +338,9 @@ def _place(root: Path, rel: PurePosixPath, data: bytes) -> str:
     try:
         if replace:
             mode = os.lstat(dest).st_mode & 0o777  # the new file keeps the permissions of the one it replaces
-            target = folder / f".{rel.name}.{secrets.token_hex(8)}{TEMP_SUFFIX}"
+            target = (
+                folder / f".{secrets.token_hex(8)}{TEMP_SUFFIX}"
+            )  # short: the page name may be near the limit
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NO_FOLLOW, 0o666)
     except OSError:
         return "the file there could not be written"
