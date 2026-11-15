@@ -269,6 +269,23 @@ def test_a_page_saved_while_it_is_copied_is_kept_for_the_next_run(tmp_path, monk
     assert (tmp_path / "archive" / "services" / "plex.md").read_text() == newer
 
 
+def test_the_clean_up_never_removes_a_file_that_took_the_copys_place(tmp_path, monkeypatch):
+    snap, data = _ready_to_archive(tmp_path)
+    name = tmp_path / "archive" / "services" / "plex.md"
+
+    def swap_then_fail(fd, data):
+        name.unlink()  # while the copy is still open, so the other file cannot get its inode number
+        name.write_bytes(b"someone else's file\n")  # another file takes the name before the clean-up
+        os.close(fd)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(renderer_module, "_fill", swap_then_fail)
+    with pytest.raises(OSError, match="No space left"):
+        Renderer(tmp_path).render(snap)
+    assert name.read_bytes() == b"someone else's file\n"
+    assert (tmp_path / "services" / "plex.md").read_bytes() == data
+
+
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="root can write to a read-only folder")
 @pytest.mark.parametrize("read_only", ["archive/services", "services"])
 def test_a_read_only_folder_keeps_the_page_and_leaves_no_file(tmp_path, read_only):

@@ -167,17 +167,28 @@ def _still(path: Path, read: os.stat_result) -> bool:
         return False
 
 
+def _remove_own(path: Path, made: os.stat_result) -> None:
+    """Remove `path` if it still is the file that was created there (same device and inode), else nothing."""
+    try:
+        now = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if (now.st_dev, now.st_ino) == (made.st_dev, made.st_ino):
+        path.unlink()
+
+
 def _archive(page: Path, folder: Path) -> Path | None:
-    """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy, or None
-    when the page changed while it was copied: then the copy is removed and the page is left for the next run.
+    """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy.
 
     The first name tried is the page's own (`plex.md`), then `plex-2.md`, `plex-3.md` and so on. A name is
     taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
     each name is taken by creating a new file in one step, which fails if the name exists. The copy holds
     the page's bytes and is created with the page's permissions (the umask may narrow them). The page is
-    removed only once its copy is complete and on disk; if anything fails, the error is raised, the page
-    stays where it was and the file this call created is removed. A page that is a link is copied as the
-    text it points to, and then only the link is removed.
+    removed only once its copy is complete and on disk, and only if it is still the file that was read,
+    unchanged. If it was saved again in the meantime, the copy is removed and None is returned: the page
+    stays for the next run. If anything fails, the error is raised, the page stays where it was and the
+    copy is removed. A copy is only ever removed while its name still holds the file this call created.
+    A page that is a link is copied as the text it points to, and then only the link is removed.
     """
     with page.open("rb") as source:
         read = os.fstat(source.fileno())
@@ -191,14 +202,19 @@ def _archive(page: Path, folder: Path) -> Path | None:
             continue
         break
     try:
+        made = os.fstat(fd)
+    except BaseException:
+        os.close(fd)
+        raise
+    try:
         _fill(fd, data)
         if not _still(page, read):  # saved again while it was copied: the copy would hold older text
-            dest.unlink()
+            _remove_own(dest, made)
             return None
         page.unlink()
     except BaseException:
         with contextlib.suppress(OSError):  # the file this call created: never one that was there before
-            dest.unlink()
+            _remove_own(dest, made)
         raise
     return dest
 
