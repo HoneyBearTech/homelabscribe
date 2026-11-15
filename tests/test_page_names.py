@@ -272,6 +272,8 @@ def test_coded_name_grows_the_code_and_then_counts():
     every = {f"base-{full[:n]}" for n in range(8, 65, 2)}
     assert coded_name("base", "k", every) == f"base-{full}-2"
     assert coded_name("base", "k", every | {f"base-{full}-2"}) == f"base-{full}-3"
+    held = {f"base-{full[:8]}"}.__contains__  # a page written for someone else is there
+    assert coded_name("base", "k", set(), held) == f"base-{full[:10]}"
     long = coded_name("x" * 199 + "-" + "y", "k", set())
     assert len(long) <= 200 and long == "x" * 191 + f"-{full[:8]}"
     assert coded_name("a" * 190 + "-" + "b" * 9, "k", set()) == "a" * 190 + f"-{full[:8]}"  # no "--"
@@ -592,6 +594,40 @@ def test_services_the_same_in_every_way_get_two_pages_whatever_the_scan_order(tm
     assert len(pages) == 2 and set(_ids(tmp_path).values()) == {"h/x/manual"}
     twins.reverse()
     assert _service_pages_written(tmp_path, _lab(twins)) == []
+
+
+def test_a_new_code_never_takes_a_page_written_for_another_service(tmp_path):
+    # Both titles give plex-media, and the SHA-256 of "h/<title>" starts with 5b50911b for both.
+    b_title, c_title = "Plex*!$$!Media", "Plex|~($!Media"
+    assert _code(f"h/{b_title}") == _code(f"h/{c_title}") == "5b50911b"
+    owner = _svc("a", "h", "Plex Media")
+    Renderer(tmp_path).render(_snap(["h"], [owner, _svc("b", "h", b_title)]))
+    b_page = tmp_path / "services" / "plex-media-5b50911b.md"
+    assert front_matter(b_page)["id"] == "h/b"
+    _add_notes(b_page, "About b.")
+    renderer = Renderer(tmp_path)
+    renderer.render(_snap(["h"], [owner, _svc("c", "h", c_title)]))  # b goes, c comes
+    c_page = f"plex-media-{_code(f'h/{c_title}', 10)}"
+    assert _ids(tmp_path) == {"plex-media": "h/a", c_page: "h/c"}
+    assert _notes_of(tmp_path) == {}
+    assert "About b." in (tmp_path / "archive" / "services" / b_page.name).read_text()
+    assert renderer.notices == [
+        f'"{c_title}" on h has its own page services/{c_page}.md (its name matched "Plex Media")'
+    ]
+
+
+def test_a_new_code_never_takes_an_older_page_without_an_id_written_for_another_service(tmp_path):
+    folder = tmp_path / "services"
+    _hostile(folder / f"plex-media-{_code('h/Plex-Media')}.md", "Plex Other", "")  # no id: title and host
+    Renderer(tmp_path).render(_snap(*CASES["titles that differ only in punctuation"]))
+    assert _ids(tmp_path)[f"plex-media-{_code('h/Plex-Media', 10)}"] == "h/b"
+
+
+def test_a_new_host_code_never_takes_a_page_written_for_another_host(tmp_path):
+    folder = tmp_path / "hosts"
+    _hostile(folder / f"nas-1-{_code('nas-1')}.md", "nas 1", "", host=None)  # another host's page
+    Renderer(tmp_path).render(_snap(*CASES["host names that differ only in case and spaces"]))
+    assert front_matter(folder / f"nas-1-{_code('nas-1', 10)}.md")["title"] == "nas-1"
 
 
 def test_only_pages_of_look_alikes_have_an_id(tmp_path):

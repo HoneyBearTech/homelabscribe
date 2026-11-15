@@ -12,6 +12,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterator
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import TypeVar
 
@@ -70,14 +71,14 @@ def slug(text: str) -> str:
 CODE_START = 8  # hex digits of the code a page gets when its name is already another page's
 
 
-def coded_name(base: str, key: str, taken: set[str]) -> str:
+def coded_name(base: str, key: str, taken: set[str], held: Callable[[str], bool] = lambda name: False) -> str:
     """`base` with a hyphen and a code from `key` (the first 8 hex digits of its SHA-256), at most `SLUG_MAX`
-    characters, and not in `taken`.
+    characters, not in `taken` and not `held` (by a page written for someone else).
 
     `base` is cut so the whole name fits (hyphens at the cut removed). When the name is taken, the code
     grows by two digits (10, 12, ...) until it is free; with all 64 digits taken, `-2`, `-3`, ... follow.
     """
-    return next(name for name in _code_names(base, key) if name not in taken)
+    return next(name for name in _code_names(base, key) if name not in taken and not held(name))
 
 
 def _code_names(base: str, key: str, counted: bool = True) -> Iterator[str]:
@@ -377,6 +378,12 @@ class Renderer:
         def service_claims(fm: dict, s: Service) -> bool:
             return fm.get("id") == replace_surrogates(page_key(s)) and same_title_and_host(fm, s)
 
+        def service_foreign(fm: dict, s: Service) -> bool:
+            # A page written for another service: its id (or, without one, its title and host) is another's.
+            if "id" in fm:
+                return fm["id"] != replace_surrogates(page_key(s))
+            return not same_title_and_host(fm, s)
+
         def fixed_order(s: Service) -> tuple:
             # A service whose own title is unique first (its name is that title), then title, host, names,
             # kind and VM or LXC number; last everything else known about it, so that only services that
@@ -386,7 +393,14 @@ class Renderer:
             return (*head, vmid, s.model_dump_json())
 
         service_names, service_extra, grouped = self._names(
-            "services", services, base, fixed_order, service_owner, service_keys, service_claims
+            "services",
+            services,
+            base,
+            fixed_order,
+            service_owner,
+            service_keys,
+            service_claims,
+            service_foreign,
         )
         host_list = list({h.name: h for h in hosts}.values())
 
@@ -401,6 +415,7 @@ class Renderer:
             lambda fm, group: next((h for h in group if host_is(fm, h)), None),
             lambda h, group: [h.name],
             host_is,
+            lambda fm, h: not host_is(fm, h),
         )
         # By the service itself: two services can share an id (a VM and a container named like its host).
         names = {id(s): n for s, n in zip(services, service_names, strict=True)}
@@ -469,6 +484,7 @@ class Renderer:
         owner: Callable[[dict, list[T]], T | None],
         keys: Callable[[T, list[T]], list[str]],
         claims: Callable[[dict, T], bool],
+        foreign: Callable[[dict, T], bool],
     ) -> tuple[list[str], list[tuple[T, str, T]], set[int]]:
         """The page name of each item (in the order of `items`), `(item, name, owner)` for each item whose
         base name was another's, and the `id()` of every item whose base name was shared.
@@ -477,8 +493,9 @@ class Renderer:
         with a code (`coded_name`). The one that keeps it is the one `owner` finds for the front matter of
         the page already in `folder` under that name; without one, the first in `order`. Each other item
         keeps a coded page already there that `claims` says was written for it (any of its `keys`, any code
-        length); otherwise it gets a new one from its first key. The result does not depend on the order of
-        `items`, and no two items get the same name.
+        length); otherwise it gets a new one from its first key, never a name held by a page that `foreign`
+        says was written for another item (the code grows instead). The result does not depend on the order
+        of `items`, and no two items get the same name.
         """
         groups: dict[str, list[T]] = defaultdict(list)
         for it in items:
@@ -508,7 +525,8 @@ class Renderer:
                     taken.add(kept)
                     named[id(it)] = kept
         for name, it, group in new:
-            coded = coded_name(name, keys(it, group)[0], taken)
+            held = partial(self._held, folder, foreign=foreign, item=it)
+            coded = coded_name(name, keys(it, group)[0], taken, held)
             taken.add(coded)
             named[id(it)] = coded
         extra = [
@@ -518,6 +536,15 @@ class Renderer:
             if it is not owners[name]
         ]
         return [named[id(it)] for it in items], extra, grouped
+
+    def _held(self, folder: str, name: str, *, foreign: Callable[[dict, T], bool], item: T) -> bool:
+        """True when a page in `folder` under `name` was written for another item than `item`, as `foreign`
+        reads its front matter."""
+        path = self.out / folder / f"{name}.md"
+        if not os.path.lexists(path):
+            return False
+        fm = front_matter(path)
+        return fm is not None and foreign(fm, item)
 
     def _kept_page(
         self, folder: str, base: str, keys: list[str], taken: set[str], claims: Callable[[dict], bool]
