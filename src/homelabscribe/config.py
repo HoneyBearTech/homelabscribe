@@ -70,6 +70,7 @@ class ManualServiceConfig(BaseModel):
 class Config(BaseModel):
     output_dir: Path = Path("homelabscribe-docs")
     state_dir: Path = Path(".homelabscribe")
+    html_dir: Path | None = None  # also write a static HTML copy of the pages here (a folder of its own)
     docker_hosts: list[DockerHostConfig] = Field(default_factory=lambda: [DockerHostConfig(name="docker")])
     proxmox: list[ProxmoxConfig] = Field(default_factory=list)
     npm: list[NpmConfig] = Field(default_factory=list)

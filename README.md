@@ -89,6 +89,7 @@ Screenshots of the built-in demo (a made-up lab), rendered from the Markdown it 
 | Proxmox VMs and LXCs | | Yes |
 | Service, host and overview pages | Yes | Yes |
 | Your notes preserved across runs | Yes | Yes |
+| Static HTML copy | Yes | Yes |
 | Changelog ("what changed this week") | | Yes |
 | Break-glass guide for family | | Yes |
 | Topology diagram | | Yes |
@@ -157,7 +158,7 @@ HomelabScribe rewrites everything else on the page but copies this block forward
 | `homelabscribe run` | Scan, then write docs. The usual command. |
 | `homelabscribe scan` | Take a snapshot only. |
 | `homelabscribe render` | Rewrite docs from the latest snapshot. |
-| `homelabscribe doctor` | Check config, connections and license; safe to paste into an issue. |
+| `homelabscribe doctor` | Check config, connections and license; safe to paste into an issue. `--bundle` also writes a redacted archive to attach to a bug report. |
 | `homelabscribe demo` | Render a sample homelab. |
 
 ## Development

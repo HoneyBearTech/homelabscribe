@@ -26,6 +26,7 @@ settings.load_profile("fuzz")
 TARGETS = {
     "env_names": "test_env_names_never_contains_values",
     "clean_labels": "test_clean_labels_drops_htpasswd_hashes",
+    "bundle_redact": "test_bundle_redaction_never_returns_a_marker",
     "depends_on": "test_parse_depends_on_returns_sorted_unique",
     "ports": "test_parse_ports_accepts_docker_shaped_input",
     "container": "test_parse_container_only_fails_with_expected_errors",
@@ -33,6 +34,7 @@ TARGETS = {
     "guest": "test_parse_guest_only_fails_with_expected_errors",
     "notes": "test_notes_merge_keeps_markers_and_notes",
     "license": "test_license_verify_rejects_garbage_cleanly",
+    "html_page": "test_html_page_carries_no_markup_from_the_page_text",
 }
 
 

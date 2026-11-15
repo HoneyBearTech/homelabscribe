@@ -23,11 +23,13 @@ config ─▶ collectors ─▶ redact ─▶ enrich ─▶ snapshot (JSON) ─�
 | `collectors/` | Read-only collection; pure `parse_*` functions for testing |
 | `models.py` | Pydantic `Host`, `Service`, `Snapshot` shared by all stages |
 | `redact.py` | Keeps env var **names** only; drops sensitive labels and htpasswd hashes |
+| `bundle.py` | The redacted archive of `doctor --bundle`: masks the config, and keeps only counts, version numbers and fixed words from snapshots and servers |
 | `enrich.py`, `catalog.yaml` | Friendly names, descriptions, categories, `homelabscribe.*` label overrides |
 | `store.py` | Timestamped snapshots (keeps 60) and `changelog.json` |
 | `diff.py` | Changes between snapshots |
 | `notes.py` | The `homelabscribe:notes` block preserved across renders |
 | `renderer.py`, `templates/` | Markdown output; writes only changed files; archives removed pages that hold notes |
+| `htmlsite.py`, `templates/page.html.j2` | Optional static HTML copy of the pages (`html_dir`): converts the Markdown with raw HTML off, checks every link and image, replaces only files it wrote |
 | `pro/` | Pro-only templates under a separate license |
 | `licensing.py` | Offline Ed25519 license verification |
 | `pipeline.py`, `cli.py` | Orchestration, Free-tier limits, command line |

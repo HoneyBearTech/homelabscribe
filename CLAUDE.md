@@ -38,11 +38,13 @@ Pipeline: **collectors → enrichment → snapshot (JSON) → diff → renderers
 | `collectors/docker.py`, `collectors/proxmox.py` | Read-only data collection. Pure `parse_*` functions do the work so tests never need a daemon. A new source = one new collector with `collect() -> (hosts, services)`. |
 | `models.py` | Pydantic models: `Host`, `Service`, `Snapshot`. The contract between every stage. |
 | `redact.py` | Env var **names only**, sensitive labels and htpasswd hashes dropped. |
+| `bundle.py` | `doctor --bundle`: the redacted archive for bug reports. A config field is masked unless `_RULES` keeps it; from snapshots and servers only counts, version numbers and fixed words. `tests/test_bundle.py` holds the leak test. |
 | `enrich.py` + `catalog.yaml` | Friendly names, plain-English descriptions, categories, Traefik URLs, `homelabscribe.*` label overrides. Matches image base name, then image owner. |
 | `store.py` | Snapshots as timestamped JSON in `state_dir/snapshots/` (keeps 60) and `changelog.json`. |
 | `diff.py` | added / moved / changed / removed between snapshots. |
 | `notes.py` | The `<!-- homelabscribe:notes:start/end -->` block that survives every re-render. |
 | `renderer.py` + `templates/` | Jinja2 → Markdown. Writes only changed files; archives removed pages that hold notes. |
+| `htmlsite.py` + `templates/page.html.j2` | Static HTML copy of the pages (`html_dir`, Free): Markdown → HTML with markdown-it-py, raw HTML off. Its render rules decide which links and images are written. In `html_dir` it only replaces or removes files that start with its generator line, and it never follows symlinks. |
 | `pro/` | Pro-only templates (changelog, break-glass, topology). **Separate commercial license.** |
 | `licensing.py` | Offline Ed25519 license keys (`LS1.<payload>.<sig>`); `features()` returns enabled Pro features. |
 | `pipeline.py` | `scan()` and `render()`; enforces Free-tier limits (1 Docker host, no Proxmox). |
@@ -72,10 +74,11 @@ Pipeline: **collectors → enrichment → snapshot (JSON) → diff → renderers
 - Fuzzing: `fuzz/fuzz_properties.py` runs the Hypothesis properties of `tests/test_fuzz_parsers.py` under Atheris (Linux
   x86_64 only; `.github/workflows/fuzz.yml`, deps in `requirements/fuzz.txt`). A new parser gets a property and a target.
 - GitLab copy: the owner's self-hosted GitLab (CE, LAN only; details in Chronos) holds a mirror. GitHub stays
-  the home (OpenSSF badges, Scorecard, Dependabot, releases, Sigstore signing); every change goes to GitHub
+  the home (OpenSSF badges, Scorecard, Renovate, releases, Sigstore signing); every change goes to GitHub
   as a PR, never to GitLab. `.gitlab-ci.yml` mirrors GitHub on a schedule (fast-forward only, `MIRROR_TOKEN`
   CI/CD variable) and re-runs the daemon-free checks (`checks`, `gitleaks`, `actionlint`). Its images are
-  pinned by tag and digest and bumped by hand; no host names of the GitLab go in this repository.
+  pinned by tag and digest, and Renovate proposes their updates; no host names of the GitLab go in this
+  repository.
 
 ## Context
 
