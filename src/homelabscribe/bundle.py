@@ -216,7 +216,10 @@ _SOURCES: dict[str, tuple[type[BaseModel], str]] = {
 _VERSION = re.compile(r"\d{1,4}(?:\.\d{1,4}){0,2}(?!\.?\d)")
 _MAX_COUNT = 999_999
 _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}")
-_INSTALLED = re.compile(r"[0-9A-Za-z.+!_-]{1,40}")
+# A public version (PEP 440 shape): an optional epoch, a dotted number, then short pre, post or dev markers.
+_INSTALLED = re.compile(
+    r"(?:\d{1,4}!)?\d{1,6}(?:\.\d{1,6}){0,5}(?:[._-]?(?:a|b|c|rc|alpha|beta|pre|preview|post|rev|r|dev)[._-]?\d{0,6}){0,3}"
+)
 _PLAIN = re.compile(r"[A-Za-z0-9_.-]{1,40}")
 
 LICENSE_LINES = (
@@ -338,7 +341,10 @@ def _installed(name: str) -> str:
         found = metadata.version(name)
     except Exception:
         return "not installed"
-    return found if isinstance(found, str) and _INSTALLED.fullmatch(found) else UNKNOWN
+    if not isinstance(found, str):
+        return UNKNOWN
+    public = found.split("+", 1)[0]  # the local label (after the first `+`) can name a private host
+    return public if len(public) <= 40 and _INSTALLED.fullmatch(public) else UNKNOWN
 
 
 def _plain(value: str) -> str:
@@ -468,11 +474,11 @@ def create(cfg: Config, config_path: Path | None, checks: Iterable[Check], out: 
     now = datetime.now(UTC)
     path = out if out is not None else Path(default_name(now))
     data = build(cfg, config_path, checks, now)
-    with path.open("xb") as f:
-        try:
+    f = path.open("xb")  # FileExistsError (or any error opening) comes before there is a file of ours
+    try:
+        with f:
             f.write(data)
-        except OSError:
-            f.close()
-            path.unlink(missing_ok=True)
-            raise
+    except OSError:  # writing, flushing or closing failed: do not leave a partial file behind
+        path.unlink(missing_ok=True)
+        raise
     return path
