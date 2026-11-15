@@ -317,6 +317,7 @@ DIRECT_DEPENDENCIES = (
     "pydantic",
     "typer",
     "jinja2",
+    "markdown-it-py",
     "pyyaml",
     "cryptography",
 )
