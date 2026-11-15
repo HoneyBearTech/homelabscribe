@@ -247,6 +247,28 @@ def test_a_failed_flush_to_disk_keeps_the_page_and_leaves_no_file(tmp_path, monk
     assert not list((tmp_path / "archive" / "services").iterdir())
 
 
+def test_a_page_saved_while_it_is_copied_is_kept_for_the_next_run(tmp_path, monkeypatch):
+    snap, _ = _ready_to_archive(tmp_path)
+    page = tmp_path / "services" / "plex.md"
+    newer = page.read_text().replace("Plex pass renews in May.", "Plex pass renews in June, after the move.")
+    real_fill = renderer_module._fill
+
+    def fill_then_save_the_page(fd, data):
+        real_fill(fd, data)
+        page.write_text(newer)  # the user (or a sync tool) saves the page while it is being archived
+
+    monkeypatch.setattr(renderer_module, "_fill", fill_then_save_the_page)
+    renderer = Renderer(tmp_path)
+    renderer.render(snap)
+    assert page.read_text() == newer
+    assert not list((tmp_path / "archive" / "services").iterdir())
+    assert page not in renderer.written
+    monkeypatch.undo()
+    Renderer(tmp_path).render(snap)
+    assert not page.exists()
+    assert (tmp_path / "archive" / "services" / "plex.md").read_text() == newer
+
+
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="root can write to a read-only folder")
 @pytest.mark.parametrize("read_only", ["archive/services", "services"])
 def test_a_read_only_folder_keeps_the_page_and_leaves_no_file(tmp_path, read_only):

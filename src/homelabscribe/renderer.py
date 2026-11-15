@@ -154,8 +154,22 @@ def _fill(fd: int, data: bytes) -> None:
         os.fsync(f.fileno())  # on disk before the page is removed, so a crash cannot leave a short copy
 
 
-def _archive(page: Path, folder: Path) -> Path:
-    """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy.
+def _version(st: os.stat_result) -> tuple[int, int, int, int]:
+    """Which file, and which version of it: its device, inode, size and modification time."""
+    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
+
+
+def _still(path: Path, read: os.stat_result) -> bool:
+    """True when `path` still is the file, in the version, that `read` describes."""
+    try:
+        return _version(os.stat(path)) == _version(read)
+    except FileNotFoundError:
+        return False
+
+
+def _archive(page: Path, folder: Path) -> Path | None:
+    """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy, or None
+    when the page changed while it was copied: then the copy is removed and the page is left for the next run.
 
     The first name tried is the page's own (`plex.md`), then `plex-2.md`, `plex-3.md` and so on. A name is
     taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
@@ -178,6 +192,9 @@ def _archive(page: Path, folder: Path) -> Path:
         break
     try:
         _fill(fd, data)
+        if not _still(page, read):  # saved again while it was copied: the copy would hold older text
+            dest.unlink()
+            return None
         page.unlink()
     except BaseException:
         with contextlib.suppress(OSError):  # the file this call created: never one that was there before
@@ -289,7 +306,8 @@ class Renderer:
             if kept and kept.strip() != notes.PLACEHOLDER:
                 dest = self.out / "archive" / folder
                 dest.mkdir(parents=True, exist_ok=True)
-                _archive(f, dest)
+                if _archive(f, dest) is None:  # saved while it was copied: left as it is, for the next run
+                    continue
             else:
                 f.unlink()
             self.written.append(f)
