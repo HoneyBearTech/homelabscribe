@@ -6,9 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from homelabscribe import htmlsite, licensing, notes
 from homelabscribe import renderer as renderer_module
+from homelabscribe.cli import app
 from homelabscribe.demo import demo_snapshots
 from homelabscribe.enrich import enrich, load_catalog
 from homelabscribe.models import Host, Service, Snapshot
@@ -323,3 +325,33 @@ def test_the_html_copy_has_one_file_for_each_page(tmp_path):
         md = {p.relative_to(out).with_suffix(".html").as_posix() for p in out.rglob("*.md")}
         assert {p.relative_to(html).as_posix() for p in html.rglob("*.html")} == md
         assert len(md) == len(renderer.generated)
+
+
+runner = CliRunner()
+
+
+@pytest.mark.parametrize("command", ["render", "run"])
+def test_the_command_line_prints_a_note_for_each_extra_page_and_exits_0(tmp_path, command):
+    config = tmp_path / "homelabscribe.yaml"
+    config.write_text(
+        f"output_dir: {tmp_path / 'docs'}\n"
+        f"state_dir: {tmp_path / 'state'}\n"
+        "docker_hosts: []\n"
+        "manual_services:\n"
+        "  - {name: a, host: h, title: Plex Media}\n"
+        "  - {name: b, host: h, title: Plex-Media}\n"
+    )
+    if command == "render":
+        assert runner.invoke(app, ["scan", "-c", str(config)]).exit_code == 0
+    for args in [[command, "-c", str(config)]] + (
+        [[command, "-c", str(config), "--strict"]] if command == "run" else []
+    ):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+        line = (
+            f'  note: "Plex-Media" on h has its own page services/plex-media-{_code("h/Plex-Media")}.md'
+            ' (its name matched "Plex Media")\n'
+        )
+        assert result.output.count(line) == 1
+        assert result.output.index(line) < result.output.index("Updated ")
+        assert "skipped:" not in result.output
