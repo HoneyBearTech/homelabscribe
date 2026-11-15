@@ -196,3 +196,143 @@ def test_a_blocked_changelog_is_printed_once_in_a_run(config, tmp_path):
     result = runner.invoke(app, ["run", "-c", str(config)])
     assert result.exit_code == 0, result.output
     assert result.output.count("skipped: changelog.json") == 1
+
+
+# --- notifications from `run` ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def posted(config, tmp_path, monkeypatch):
+    """A Pro run with a Discord target and a fake `requests.post`: the messages sent, never a real request."""
+    import requests
+
+    from homelabscribe import licensing
+
+    monkeypatch.setattr(licensing, "features", lambda key: (licensing.PRO_FEATURES, "Pro"))
+    config.write_text(
+        config.read_text() + "notify:\n  - type: discord\n    url: http://discord.invalid/hook\n"
+    )
+    sent: list[str] = []
+
+    class _Response:
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(
+        requests, "post", lambda url, json=None, **kw: sent.append(json["content"]) or _Response()
+    )
+    return sent
+
+
+def test_run_sends_one_message_with_the_skipped_page_after_the_render(config, tmp_path, posted):
+    _bad_page(config, tmp_path)
+    posted.clear()
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert posted == ["**HomelabScribe**\nSkipped: services/sonarr.md (not UTF-8, left as it is)"]
+    assert str(tmp_path) not in posted[0]
+    state = json.loads((tmp_path / "state" / "notify-state.json").read_text())
+    assert state["skips"] == ["services/sonarr.md"]
+    posted.clear()
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    assert posted == []  # the same file is not sent again
+
+
+def test_run_sends_a_page_the_html_copy_skipped(config, tmp_path, posted):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    (tmp_path / "html" / "services" / "sonarr.html").write_text("not made by HomelabScribe\n")
+    (tmp_path / "docs" / "index.md").write_text("changed\n")
+    posted.clear()
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert len(posted) == 1 and "Skipped: services/sonarr.html" in posted[0], result.output
+    assert posted[0].count("sonarr") == 1
+
+
+def test_run_sends_a_skipped_snapshot_found_by_the_scan(config, tmp_path, posted):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    posted.clear()
+    (tmp_path / "state" / "changelog.json").write_text("{not json")
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert len(posted) == 1 and posted[0].startswith("**HomelabScribe**\nSkipped: changelog.json (")
+
+
+def test_run_still_sends_what_the_scan_found_when_the_render_fails(config, tmp_path, posted, monkeypatch):
+    from homelabscribe import pipeline
+
+    def boom(cfg, feats, snapshot=None):
+        raise RuntimeError("No snapshot yet")
+
+    monkeypatch.setattr(pipeline, "render_pages", boom)
+    monkeypatch.setattr(
+        docker_collector.DockerCollector, "collect", lambda self: (_ for _ in ()).throw(OSError())
+    )
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 1
+    assert len(posted) == 1 and "Could not read:" in posted[0]
+
+
+def test_scan_and_render_alone_never_notify(config, tmp_path, posted):
+    _bad_page(config, tmp_path)
+    posted.clear()
+    assert runner.invoke(app, ["scan", "-c", str(config)]).exit_code == 0
+    assert runner.invoke(app, ["render", "-c", str(config)]).exit_code == 0
+    assert posted == []
+
+
+def _state(tmp_path):
+    return json.loads((tmp_path / "state" / "notify-state.json").read_text())
+
+
+def test_a_failed_render_does_not_clear_or_announce_page_skips(config, tmp_path, posted, monkeypatch):
+    from homelabscribe import pipeline
+
+    _bad_page(config, tmp_path)
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    assert len(posted) == 1 and "services/sonarr.md" in posted[0]
+    posted.clear()
+    real = pipeline.render_pages
+
+    def boom(cfg, feats, snapshot=None):
+        raise RuntimeError("No snapshot yet")
+
+    monkeypatch.setattr(pipeline, "render_pages", boom)
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 1
+    assert posted == [] and _state(tmp_path)["skips"] == ["services/sonarr.md"]
+    monkeypatch.setattr(pipeline, "render_pages", real)
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    assert posted == []  # still bad, already sent
+    # and a render that is stopped by the keyboard does the same
+    monkeypatch.setattr(pipeline, "render_pages", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+    runner.invoke(app, ["run", "-c", str(config)])
+    assert posted == [] and _state(tmp_path)["skips"] == ["services/sonarr.md"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs file names that are not UTF-8")
+def test_run_sends_a_page_whose_name_is_not_utf8(config, tmp_path, posted):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    posted.clear()
+    odd = os.fsdecode(os.fsencode(tmp_path / "docs" / "services") + b"/broken-\xff.md")
+    with open(odd, "wb") as f:
+        f.write(os.urandom(32) + b"\xff")
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert len(posted) == 1 and "services/broken-\\\\udcff.md" in posted[0]  # Discord escapes the backslash
+    posted[0].encode("utf-8")
+    assert _state(tmp_path)["skips"] == ["services/broken-\udcff.md"]
+    posted.clear()
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0 and posted == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs odd file names")
+def test_run_sends_a_hostile_file_name_as_one_safe_line(config, tmp_path, posted):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    posted.clear()
+    name = "x\nCould not read: y @everyone **b**"
+    (tmp_path / "docs" / "services" / f"{name}.md").write_bytes(os.urandom(32) + b"\xff")
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    body = posted[0].split("\n", 1)[1]
+    assert len(body.splitlines()) == 1 and body.startswith("Skipped: services/x\\\\n")
+    assert "\\*\\*b\\*\\*" in body

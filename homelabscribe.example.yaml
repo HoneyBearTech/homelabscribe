@@ -38,7 +38,8 @@ docker_hosts:
 #     restart: "Unplug the Pi, wait 10 seconds, plug it back in."
 #     # title / description / category: override the built-in catalog text
 
-# Notifications (Pro): a short message after a scan that found changes or could not read a source.
+# Notifications (Pro): a short message after `run` that found changes, could not read a source, or left a file
+# alone (`errors` covers the last two; each is sent once, and the message names the file, never its full path).
 # Opt-in, and sent only to the address below. A Discord webhook URL is a secret: keep it in an env var.
 # notify:
 #   - type: ntfy                      # ntfy topic URL; add `token:` if the topic needs a login

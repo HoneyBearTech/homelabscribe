@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 _ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -52,6 +52,16 @@ class NotifyConfig(BaseModel):
     url: str  # use ${NOTIFY_URL}: a Discord webhook URL is a secret
     token: str | None = None  # ntfy access token, if the topic needs one
     on: list[Literal["changes", "errors"]] = Field(default_factory=lambda: ["changes", "errors"])
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unquoted_on(cls, data):
+        """YAML 1.1 reads an unquoted `on:` as the boolean True: take that key as `on`."""
+        if isinstance(data, dict) and True in data:
+            if "on" in data:
+                raise ValueError("notify entry has `on` twice (an unquoted `on:` counts as `on`); keep one")
+            data = {("on" if k is True else k): v for k, v in data.items()}
+        return data
 
 
 class ManualServiceConfig(BaseModel):

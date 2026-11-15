@@ -179,6 +179,8 @@ def unknown_keys(raw: object, model: type[BaseModel] = Config) -> int:
         return 0
     count = 0
     for key, value in raw.items():
+        if key is True and "on" in model.model_fields:  # an unquoted `on:` is read as True
+            key = "on"
         field = model.model_fields.get(key) if isinstance(key, str) else None
         if field is None:
             count += 1
