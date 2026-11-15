@@ -384,6 +384,324 @@ def test_archiving_never_changes_a_file_already_in_the_archive(tmp_path_factory,
         assert len(new) == 1 and after[new.pop()] == data
 
 
+# ---- archiving: the generated links of an archived page point at where their pages are ---------------
+
+
+def _linked_lab() -> Snapshot:
+    """A Proxmox node `pve` with a VM that is the Docker host `media`, and three services on `media`: Plex
+    depends on "A [beta]" (a title with brackets, page `a-beta`) and Overseerr depends on Plex."""
+
+    def on_media(name, title, deps=()):
+        return Service(
+            name=name,
+            host="media",
+            kind="container",
+            display_name=title,
+            compose_project="m",
+            compose_service=name,
+            depends_on=list(deps),
+        )
+
+    return Snapshot(
+        hosts=[
+            Host(name="pve", kind="proxmox-node"),
+            Host(name="media", kind="docker", guest_of="pve/docker-vm"),
+        ],
+        services=[
+            Service(
+                name="docker-vm", host="pve", kind="vm", vmid=101, runs_host="media", display_name="Docker VM"
+            ),
+            on_media("plex", "Plex", ["sonarr"]),
+            on_media("sonarr", "A [beta]"),
+            on_media("overseerr", "Overseerr", ["plex"]),
+        ],
+    )
+
+
+def _remove(out, noted, services=(), hosts=(), before=None) -> dict[str, bytes]:
+    """Render the lab, give the pages in `noted` notes, call `before`, then render the lab without the
+    services and hosts named. Returns the bytes of each page in `noted` just before that second run."""
+    lab = _linked_lab()
+    Renderer(out).render(lab)
+    for rel in noted:
+        _with_notes(out / rel, f"Notes on {rel}.")
+    if before:
+        before()
+    data = {rel: (out / rel).read_bytes() for rel in noted}
+    lab.services = [s for s in lab.services if s.name not in services]
+    lab.hosts = [h for h in lab.hosts if h.name not in hosts]
+    Renderer(out).render(lab)
+    return data
+
+
+def _swapped(data: bytes, *swaps: tuple[str, str]) -> bytes:
+    """`data` with each text replaced by the other, each found exactly once."""
+    for old, new in swaps:
+        assert data.count(old.encode()) == 1, old
+        data = data.replace(old.encode(), new.encode())
+    return data
+
+
+def _dead_links(out) -> list[str]:
+    """Every relative Markdown link in an archived page that points at no file."""
+    dead = []
+    for page in sorted((out / "archive").rglob("*.md")):
+        for target in re.findall(r"\]\(([^)\s]+\.md)\)", page.read_text()):
+            if not (page.parent / target).is_file():
+                dead.append(f"{page.relative_to(out).as_posix()} -> {target}")
+    return dead
+
+
+def test_an_archived_service_links_to_the_pages_that_stay(tmp_path):
+    data = _remove(tmp_path, ["services/plex.md"], services=["plex"])
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],
+        ("| Runs on | [media](../hosts/media.md) |", "| Runs on | [media](../../hosts/media.md) |"),
+        ("- Depends on [A [beta]](a-beta.md)", "- Depends on [A [beta]](../../services/a-beta.md)"),
+        ("- Used by [Overseerr](overseerr.md)", "- Used by [Overseerr](../../services/overseerr.md)"),
+    )
+    assert not _dead_links(tmp_path)
+
+
+def test_an_archived_host_and_its_services_link_to_each_other_and_to_the_pages_that_stay(tmp_path):
+    noted = ["services/plex.md", "hosts/media.md"]  # A [beta] and Overseerr have no notes: deleted
+    data = _remove(tmp_path, noted, services=["plex", "sonarr", "overseerr"], hosts=["media"])
+    archive = tmp_path / "archive"
+    assert (
+        not (tmp_path / "services" / "a-beta.md").exists()
+        and not (archive / "services" / "a-beta.md").exists()
+    )
+    assert (archive / "services" / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],
+        ("| Runs on | [media](../hosts/media.md) |", "| Runs on | [media](../../archive/hosts/media.md) |"),
+        ("- Depends on [A [beta]](a-beta.md)", "- Depends on A [beta]"),  # gone: its text, as written
+        ("- Used by [Overseerr](overseerr.md)", "- Used by Overseerr"),
+    )
+    assert (archive / "hosts" / "media.md").read_bytes() == _swapped(
+        data["hosts/media.md"],
+        (
+            "| Runs as | VM [Docker VM](../services/docker-vm.md) on [pve](../hosts/pve.md) |",
+            "| Runs as | VM [Docker VM](../../services/docker-vm.md) on [pve](../../hosts/pve.md) |",
+        ),
+        ("| [A [beta]](../services/a-beta.md) | unknown |", "| A [beta] | unknown |"),
+        ("| [Overseerr](../services/overseerr.md) | unknown |", "| Overseerr | unknown |"),
+        ("| [Plex](../services/plex.md) | unknown |", "| [Plex](../../archive/services/plex.md) | unknown |"),
+    )
+    assert not _dead_links(tmp_path)
+
+
+def test_two_services_that_depend_on_each_other_link_to_each_others_archived_copy(tmp_path):
+    data = _remove(tmp_path, ["services/plex.md", "services/a-beta.md"], services=["plex", "sonarr"])
+    archive = tmp_path / "archive" / "services"
+    assert (archive / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],
+        ("](../hosts/media.md)", "](../../hosts/media.md)"),
+        ("- Depends on [A [beta]](a-beta.md)", "- Depends on [A [beta]](../../archive/services/a-beta.md)"),
+        ("](overseerr.md)", "](../../services/overseerr.md)"),
+    )
+    assert (archive / "a-beta.md").read_bytes() == _swapped(
+        data["services/a-beta.md"],
+        ("](../hosts/media.md)", "](../../hosts/media.md)"),
+        ("- Used by [Plex](plex.md)", "- Used by [Plex](../../archive/services/plex.md)"),
+    )
+    assert not _dead_links(tmp_path)
+
+
+def test_the_docker_host_and_the_vm_it_runs_as_link_to_each_other(tmp_path):
+    vm, media = "services/docker-vm.md", "hosts/media.md"
+    data = _remove(
+        tmp_path, [vm, media], services=["docker-vm", "plex", "sonarr", "overseerr"], hosts=["media"]
+    )
+    archive = tmp_path / "archive"
+    assert (archive / vm).read_bytes() == _swapped(
+        data[vm],
+        ("| Runs on | [pve](../hosts/pve.md) |", "| Runs on | [pve](../../hosts/pve.md) |"),
+        (
+            "| Is the Docker host | [media](../hosts/media.md) |",
+            "| Is the Docker host | [media](../../archive/hosts/media.md) |",
+        ),
+    )
+    assert (archive / media).read_bytes() == _swapped(
+        data[media],
+        (
+            "| Runs as | VM [Docker VM](../services/docker-vm.md) on [pve](../hosts/pve.md) |",
+            "| Runs as | VM [Docker VM](../../archive/services/docker-vm.md) on [pve](../../hosts/pve.md) |",
+        ),
+        ("| [A [beta]](../services/a-beta.md) |", "| A [beta] |"),
+        ("| [Overseerr](../services/overseerr.md) |", "| Overseerr |"),
+        ("| [Plex](../services/plex.md) |", "| Plex |"),
+    )
+    assert not _dead_links(tmp_path)
+
+
+def test_a_vm_archived_while_its_docker_host_stays_links_to_the_host(tmp_path):
+    data = _remove(tmp_path, ["services/docker-vm.md"], services=["docker-vm"])
+    assert (tmp_path / "archive" / "services" / "docker-vm.md").read_bytes() == _swapped(
+        data["services/docker-vm.md"],
+        ("](../hosts/pve.md)", "](../../hosts/pve.md)"),
+        (
+            "| Is the Docker host | [media](../hosts/media.md) |",
+            "| Is the Docker host | [media](../../hosts/media.md) |",
+        ),
+    )
+
+
+def test_a_page_archived_under_another_name_is_linked_by_that_name(tmp_path):
+    archive = tmp_path / "archive"
+    taken = {"services/a-beta.md": b"archived before\n", "hosts/media.md": b"put here by hand\n"}
+
+    def take_the_names():
+        for rel, text in taken.items():
+            (archive / rel).parent.mkdir(parents=True, exist_ok=True)
+            (archive / rel).write_bytes(text)
+
+    noted = ["services/plex.md", "services/a-beta.md", "hosts/media.md"]
+    data = _remove(tmp_path, noted, ["plex", "sonarr", "overseerr"], ["media"], before=take_the_names)
+    assert {rel: (archive / rel).read_bytes() for rel in taken} == taken
+    assert (archive / "services" / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],
+        ("](../hosts/media.md)", "](../../archive/hosts/media-2.md)"),
+        ("- Depends on [A [beta]](a-beta.md)", "- Depends on [A [beta]](../../archive/services/a-beta-2.md)"),
+        ("- Used by [Overseerr](overseerr.md)", "- Used by Overseerr"),
+    )
+    assert (archive / "hosts" / "media-2.md").read_bytes() == _swapped(
+        data["hosts/media.md"],
+        (
+            "](../services/docker-vm.md) on [pve](../hosts/pve.md)",
+            "](../../services/docker-vm.md) on [pve](../../hosts/pve.md)",
+        ),
+        ("| [A [beta]](../services/a-beta.md) |", "| [A [beta]](../../archive/services/a-beta-2.md) |"),
+        ("| [Overseerr](../services/overseerr.md) |", "| Overseerr |"),
+        ("| [Plex](../services/plex.md) |", "| [Plex](../../archive/services/plex.md) |"),
+    )
+    assert (archive / "services" / "a-beta-2.md").read_bytes() == _swapped(
+        data["services/a-beta.md"],
+        ("](../hosts/media.md)", "](../../archive/hosts/media-2.md)"),
+        ("](plex.md)", "](../../archive/services/plex.md)"),
+    )
+
+
+def test_a_link_to_a_page_that_is_not_there_becomes_its_text(tmp_path):
+    def lose_pages():
+        (tmp_path / "services" / "overseerr.md").unlink()  # removed by hand before the run
+        (tmp_path / "hosts" / "media.md").unlink()
+        (tmp_path / "hosts" / "media.md").mkdir()  # written in the run, but a folder is there: left alone
+
+    data = _remove(tmp_path, ["services/plex.md"], services=["plex", "overseerr"], before=lose_pages)
+    assert (tmp_path / "hosts" / "media.md").is_dir()
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],
+        ("| Runs on | [media](../hosts/media.md) |", "| Runs on | media |"),
+        ("](a-beta.md)", "](../../services/a-beta.md)"),
+        ("- Used by [Overseerr](overseerr.md)", "- Used by Overseerr"),
+    )
+
+
+def test_links_in_the_notes_and_the_rest_of_the_page_are_kept_with_crlf_and_any_letters(tmp_path):
+    mine = (
+        "Café, Ærø, 日本語 — ✓\n- Depends on [A [beta]](a-beta.md)\n"
+        "| Runs on | [media](../hosts/media.md) |\n"
+        "See [the host](../hosts/media.md) and [Overseerr](overseerr.md)."
+    )
+
+    def notes_with_links_and_crlf():
+        page = tmp_path / "services" / "plex.md"
+        text = page.read_text().replace("Notes on services/plex.md.", mine)
+        page.write_bytes(text.replace("\n", "\r\n").encode())
+
+    data = _remove(tmp_path, ["services/plex.md"], services=["plex"], before=notes_with_links_and_crlf)
+    copy = (tmp_path / "archive" / "services" / "plex.md").read_bytes()
+    head, start, tail = data["services/plex.md"].partition(notes.START.encode())
+    assert (
+        copy
+        == _swapped(
+            head,
+            (
+                "| Runs on | [media](../hosts/media.md) |\r\n",
+                "| Runs on | [media](../../hosts/media.md) |\r\n",
+            ),
+            (
+                "- Depends on [A [beta]](a-beta.md)\r\n",
+                "- Depends on [A [beta]](../../services/a-beta.md)\r\n",
+            ),
+            (
+                "- Used by [Overseerr](overseerr.md)\r\n",
+                "- Used by [Overseerr](../../services/overseerr.md)\r\n",
+            ),
+        )
+        + start
+        + tail
+    )
+    assert mine.replace("\n", "\r\n").encode() in tail  # the notes, links and all, byte for byte
+    assert copy.count(b"\r\n") == data["services/plex.md"].count(b"\r\n") and b"\n" not in copy.replace(
+        b"\r\n", b""
+    )
+
+
+def test_a_page_whose_copy_fails_is_linked_by_the_name_it_gets_on_the_next_run(tmp_path, monkeypatch):
+    real_fill = renderer_module._fill
+    archive = tmp_path / "archive" / "services"
+
+    def fail_for_a_beta(fd, data):
+        if b"# A [beta]" in data:
+            os.close(fd)
+            raise OSError(28, "No space left on device")
+        real_fill(fd, data)
+
+    lab = _linked_lab()
+    Renderer(tmp_path).render(lab)
+    for name in ("plex", "a-beta"):
+        _with_notes(tmp_path / "services" / f"{name}.md", f"Notes on {name}.")
+    lab.services = [s for s in lab.services if s.name not in ("plex", "sonarr")]
+    monkeypatch.setattr(renderer_module, "_fill", fail_for_a_beta)
+    r = Renderer(tmp_path)
+    r.render(lab)
+    assert r.skipped == ["services/a-beta.md (could not be archived, left as it is)"]
+    assert (tmp_path / "services" / "a-beta.md").exists() and not (archive / "a-beta.md").exists()
+    assert "- Depends on [A [beta]](../../archive/services/a-beta.md)" in (archive / "plex.md").read_text()
+    monkeypatch.undo()
+    Renderer(tmp_path).render(lab)  # the next run archives it, under the name the link has
+    assert "Notes on a-beta." in (archive / "a-beta.md").read_text()
+    assert (
+        "- Used by Plex\n" in (archive / "a-beta.md").read_text()
+    )  # archived in an earlier run: not looked for
+    assert not _dead_links(tmp_path)
+
+
+def test_an_error_that_ends_the_run_leaves_no_empty_copy(tmp_path, monkeypatch):
+    def interrupted(fd, data):
+        os.close(fd)
+        raise KeyboardInterrupt
+
+    lab = _linked_lab()
+    Renderer(tmp_path).render(lab)
+    for name in ("plex", "a-beta"):
+        _with_notes(tmp_path / "services" / f"{name}.md", f"Notes on {name}.")
+    lab.services = [s for s in lab.services if s.name not in ("plex", "sonarr")]
+    monkeypatch.setattr(renderer_module, "_fill", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        Renderer(tmp_path).render(lab)
+    assert not list((tmp_path / "archive" / "services").iterdir())  # neither the one copied nor the next
+    assert (tmp_path / "services" / "plex.md").exists() and (tmp_path / "services" / "a-beta.md").exists()
+
+
+def test_the_demo_lab_archived_has_no_dead_links(tmp_path):
+    snap = _snap()
+    Renderer(tmp_path).render(snap)
+    pages = [*(tmp_path / "services").glob("*.md"), *(tmp_path / "hosts").glob("*.md")]
+    for page in pages:
+        _with_notes(page, "Kept.")
+    gone = snap.model_copy(deep=True)
+    gone.services = [s for s in gone.services if s.host != "nova"]  # every service on nova, and host pve1
+    gone.hosts = [h for h in gone.hosts if h.name != "pve1"]
+    Renderer(tmp_path).render(gone)
+    archived = [p.read_bytes() for p in (tmp_path / "archive").rglob("*.md")]
+    assert len(archived) > 5
+    for kind in (b"](../../archive/services/", b"](../../hosts/", b"](../../services/"):
+        assert any(kind in data for data in archived), kind
+    assert not _dead_links(tmp_path)
+
+
 class FakeCollector:
     def __init__(self, snap):
         self.snap = snap
