@@ -347,7 +347,8 @@ class Renderer:
     # ---- helpers exposed to templates -------------------------------------------------
 
     def _context(self, snap: Snapshot) -> dict:
-        services = snap.visible_services()
+        # By category and title, as in the snapshot; services with the same title in a fixed order.
+        services = sorted(snap.visible_services(), key=lambda s: (s.category, s.title.lower(), *tie_break(s)))
         hosts = sorted(snap.hosts, key=lambda h: h.name)
         titles = defaultdict(int)
         for s in services:

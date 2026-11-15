@@ -577,7 +577,7 @@ def test_two_guests_with_one_name_keep_their_pages_and_notes_in_any_scan_order(t
         assert _notes_of(tmp_path) == {"h/Plex/vm/101": "VM 101 notes.", "h/Plex/vm/102": "VM 102 notes."}
         assert "| Proxmox ID | 101 (VM) |" in (tmp_path / "services" / "plex-h.md").read_text()
         assert "| Proxmox ID | 102 (VM) |" in (tmp_path / "services" / f"{coded}.md").read_text()
-    assert Renderer(tmp_path).render(_lab([first, second])) == []  # the same scan again: nothing written
+    assert Renderer(tmp_path).render(_lab([second, first])) == []  # either scan order: nothing written
     assert not (tmp_path / "archive").exists()
 
 
@@ -688,6 +688,14 @@ def test_two_colliding_services_with_a_lone_surrogate_render(tmp_path):
     assert set(_ids(tmp_path)) == {"plex-media", f"plex-media-{_code('h/Plex-Media')}"}
     assert "bad\ufffdtext" in (tmp_path / "services" / "plex-media.md").read_text()
     assert renderer.skipped == []
+
+
+def test_look_alikes_with_one_title_are_listed_in_a_fixed_order(tmp_path):
+    lab = [_guest(101, "Plex"), _guest(102, "Plex")]
+    Renderer(tmp_path).render(_lab(lab))
+    index = (tmp_path / "index.md").read_text()
+    assert index.index("(services/plex-h.md)") < index.index("(services/plex-h-")  # VM 101 first
+    assert Renderer(tmp_path).render(_lab(lab[::-1])) == []  # the other scan order: nothing written
 
 
 def test_a_new_code_never_takes_a_page_written_for_another_service(tmp_path):
