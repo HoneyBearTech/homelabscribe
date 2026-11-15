@@ -129,7 +129,25 @@ def test_h1_without_html_dir_nothing_changes_and_no_html_is_written(config, tmp_
     assert sorted(p.name for p in tmp_path.iterdir()) == ["docs", "homelabscribe.yaml", "state"]
 
 
-def test_h2_run_and_render_write_the_html_copy_after_the_markdown_and_report_it(config, tmp_path):
+@pytest.fixture
+def same_scan_time(monkeypatch):
+    """Every scan gets the same time, so a second run shows no change the clock made (the break-glass page
+    and the index show the scan time to the minute or the second)."""
+    from datetime import UTC, datetime
+
+    from homelabscribe import models
+
+    class Fixed(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 15, 12, 0, 0, tzinfo=UTC)
+
+    monkeypatch.setattr(models, "datetime", Fixed)
+
+
+def test_h2_run_and_render_write_the_html_copy_after_the_markdown_and_report_it(
+    config, tmp_path, same_scan_time
+):
     path = config(f"html_dir: {tmp_path / 'html'}\n")
     first = runner.invoke(app, ["run", "-c", str(path)])
     assert first.exit_code == 0, first.output
@@ -155,10 +173,11 @@ def test_h2_run_and_render_write_the_html_copy_after_the_markdown_and_report_it(
 def test_h2_run_with_every_writes_the_html_copy_on_each_round(config, tmp_path, monkeypatch):
     path = config(f"html_dir: {tmp_path / 'html'}\n")
     monkeypatch.setattr(licensing, "features", lambda key: (licensing.PRO_FEATURES, "Pro (test)"))
-    rounds = []
+    rounds, index_there = [], []
 
     def sleep(seconds):
         rounds.append(seconds)
+        index_there.append((tmp_path / "html" / "index.html").is_file())
         (tmp_path / "html" / "index.html").unlink()  # so the next round has something to write
         if len(rounds) == 2:
             raise KeyboardInterrupt
@@ -167,7 +186,11 @@ def test_h2_run_with_every_writes_the_html_copy_on_each_round(config, tmp_path, 
     result = runner.invoke(app, ["run", "-c", str(path), "--every", "1s"])
     html_lines = [line for line in result.output.splitlines() if "HTML file(s)" in line]
     assert rounds == [1, 1] and len(html_lines) == 2
-    assert html_lines[1] == f"Updated 1 HTML file(s) in {tmp_path / 'html'}."
+    # Each round wrote the copy, and round 2 brought the deleted index.html back and counted it. How many
+    # more files changed depends on the clock (a page that shows the scan time), so it is a lower bound.
+    assert index_there == [True, True]
+    m = re.fullmatch(rf"Updated (\d+) HTML file\(s\) in {re.escape(str(tmp_path / 'html'))}\.", html_lines[1])
+    assert m and int(m.group(1)) >= 1
 
 
 def test_h2_demo_html_writes_the_sample_lab_as_html(tmp_path):
