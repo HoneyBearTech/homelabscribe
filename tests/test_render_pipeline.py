@@ -1151,3 +1151,23 @@ def test_a_host_another_source_returned_is_not_kept_twice_when_its_name_needs_cl
     scanned = Snapshot(hosts=[Host(name=name, kind="proxmox-node")])  # as the new scan returned it
     collector = DockerCollector(DockerHostConfig(name=name, url="tcp://fake:2375"))
     assert pipeline._carry_over(previous, collector, scanned) == ([], [])
+
+
+def test_render_cleans_a_snapshot_saved_before_the_cleaning(tmp_path):
+    from homelabscribe import store
+
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    lab = Snapshot(
+        hosts=[Host(name="nova", kind="docker")],
+        services=[Service(name="alpha", host="nova", kind="container", description=f"Alpha {PAIR}")],
+    )
+    pipeline.render(cfg, licensing.PRO_FEATURES, pipeline.snapshot_without_surrogates_or_markers(lab))
+    page = tmp_path / "docs" / "services" / "alpha.md"
+    _with_notes(page, "Alpha's notes.")
+    store.save(lab, cfg.state_dir)  # as a version before the cleaning saved it: the markers are in it
+    assert notes.START in next((cfg.state_dir / "snapshots").glob("*.json")).read_text()
+
+    pipeline.render(cfg, licensing.PRO_FEATURES)  # the newest snapshot from the store
+    text = page.read_text()
+    assert "Alpha's notes." in text
+    assert text.count(notes.START) == text.count(notes.END) == 1

@@ -92,7 +92,7 @@ def snapshot_without_surrogates_or_markers(snap: Snapshot) -> Snapshot:
 
     The snapshot is turned into plain lists, dicts and values, cleaned, and read back into the models, so
     every field of every model is covered, fields added later included.
-    Not covered: a snapshot handed to a Renderer directly; entries already in changelog.json are kept as is.
+    Not covered: a snapshot passed to a Renderer or `render_pages`; entries in changelog.json are kept as is.
     """
     return Snapshot.model_validate(_value_without_surrogates_or_markers(snap.model_dump()))
 
@@ -192,7 +192,7 @@ def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | Non
         latest = store.recent(cfg.state_dir, 1)
         if not latest:
             raise RuntimeError("No snapshot yet. Run `homelabscribe scan` first.")
-        snapshot = latest[0]
+        snapshot = snapshot_without_surrogates_or_markers(latest[0])  # it may have been saved uncleaned
     r = Renderer(cfg.output_dir, features)
     # The names of the critical services are compared with the cleaned names in the snapshot.
     critical = [without_surrogates_or_markers(n) for n in cfg.breakglass.critical]
