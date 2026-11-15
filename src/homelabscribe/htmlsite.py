@@ -131,8 +131,8 @@ def _image(self, tokens, idx, options, env) -> str:
     token = tokens[idx]
     alt = escapeHtml(self.renderInlineAsText(token.children or [], options, env))
     src = token.attrGet("src") or ""
-    if address_kind(src) != "relative":
-        return alt  # opening a page must not fetch anything from another host
+    if address_kind(src) != "relative" or src.replace("\\", "/").startswith("/"):
+        return alt  # nothing from another host, nor from the root of the disk or the server
     title = token.attrGet("title")
     return (
         f'<img src="{escapeHtml(src)}" alt="{alt}"' + (f' title="{escapeHtml(title)}"' if title else "") + ">"
