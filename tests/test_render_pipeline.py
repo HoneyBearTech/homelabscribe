@@ -8,7 +8,7 @@ from homelabscribe.config import Config, DockerHostConfig, ProxmoxConfig
 from homelabscribe.demo import demo_snapshots
 from homelabscribe.enrich import enrich, load_catalog
 from homelabscribe.models import Host, Service, Snapshot
-from homelabscribe.renderer import Renderer, slug
+from homelabscribe.renderer import Renderer, slug, tag_text, yaml_text
 
 
 def _snap():
@@ -239,7 +239,7 @@ def test_front_matter_of_awkward_values_is_valid_yaml_text(tmp_path):
         assert fm.get("image") == s.image
         assert fm["tags"][0] == "homelab" and len(fm["tags"]) == 2
         assert all(type(t) is str for t in fm["tags"])
-        assert fm["tags"][1] == slug(s.category)
+        assert fm["tags"][1] == tag_text(s.category)
         assert text.count(notes.START) == 1 and text.rstrip().endswith(notes.END)
         assert text.split("\n---\n", 1)[1].startswith(f"# {s.title}\n")
         seen += 1
@@ -296,6 +296,14 @@ def test_ordinary_values_stay_plain(tmp_path):
         ("Containers (LXC)", "containers-lxc"),
         ("123", '"123"'),
         ("No", '"no"'),
+        ("M\u00e9dias", "m\u00e9dias"),
+        ("a/b", "a/b"),
+        ("R_D", "r_d"),
+        ("/a b/", "a-b"),
+        ("  Home   lab ", "home-lab"),
+        ("A, [beta] {x}: #y 'q' \"z\"", "a-beta-x-y-q-z"),
+        ("&&&", "item"),
+        ("", "item"),
     ],
 )
 def test_category_tag(tmp_path, category, tag):
@@ -308,8 +316,6 @@ def test_category_tag(tmp_path, category, tag):
 
 
 def test_the_allow_list_leaves_only_plain_text_unquoted():
-    from homelabscribe.renderer import yaml_text
-
     samples = [*AWKWARD, "Plex", "Pi-hole", "a b", "x:1", "yes", "YES", "Off", "N", "y", "NULL", "e5", "1e3"]
     samples += [chr(c) for c in range(0x2000)] + [f"a{chr(c)}b" for c in range(0x300)]
     samples += [f"{w}{x}" for w in ("true", "no", "a") for x in ("", " ", ":", " #", ": b", "\n")]
@@ -322,3 +328,12 @@ def test_the_allow_list_leaves_only_plain_text_unquoted():
             assert yaml.safe_load(f"[{text}]") == [text]
         else:
             assert out.startswith('"') and out.endswith('"') and "\n" not in out
+
+
+@pytest.mark.parametrize(
+    "category", [*AWKWARD, "a/b", "R_D", "M\u00e9dias", "---", "/", "ab\u0301c", "\u0663"]
+)
+def test_a_tag_reads_back_as_the_same_text_inside_the_tags_list(category):
+    tag = tag_text(category)
+    assert tag and tag == tag.strip("-/") and tag == tag.lower()
+    assert yaml.safe_load(f"tags: [homelab, {yaml_text(tag)}]") == {"tags": ["homelab", tag]}

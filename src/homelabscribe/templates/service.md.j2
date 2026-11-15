@@ -6,7 +6,7 @@ status: {{ s.status|yaml_text }}
 {% if s.image %}
 image: {{ s.image|yaml_text }}
 {% endif %}
-tags: [homelab, {{ s.category|slug|yaml_text }}]
+tags: [homelab, {{ s.category|tag_text|yaml_text }}]
 ---
 # {{ s.title }}
 

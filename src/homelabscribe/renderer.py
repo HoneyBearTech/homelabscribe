@@ -46,6 +46,19 @@ def slug(text: str) -> str:
     return s or "item"
 
 
+def tag_text(category: str) -> str:
+    """A category as a tag: lower case, letters and digits of any language (with their combining marks)
+    and `_`, `-` and `/` kept, every run of other characters one hyphen, hyphens and slashes at the
+    start and end removed, and `item` when nothing is left.
+    """
+    kept = "".join(
+        c if c.isalnum() or c in "_-/" or unicodedata.category(c)[0] == "M" else "\0"
+        for c in str(category).lower()
+    )
+    tag = re.sub(r"\0+", "-", kept).strip("-/")
+    return tag or "item"
+
+
 # Words a YAML 1.1 reader (PyYAML) or a 1.2 reader turns into a boolean or null, in any letter case.
 _YAML_WORDS = frozenset({"true", "false", "yes", "no", "on", "off", "y", "n", "null", "~"})
 _PLAIN_ASCII = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-/:@+()")
@@ -138,7 +151,7 @@ class Renderer:
         )
         self.env.filters["code_list"] = code_list
         self.env.filters["yaml_text"] = yaml_text
-        self.env.filters["slug"] = slug
+        self.env.filters["tag_text"] = tag_text
         self.env.filters["config_vars"] = config_vars
         self.written: list[Path] = []
         self.generated: set[Path] = set()

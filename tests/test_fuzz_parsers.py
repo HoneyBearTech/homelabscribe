@@ -17,7 +17,7 @@ from homelabscribe.collectors.docker import parse_container, parse_depends_on, p
 from homelabscribe.collectors.proxmox import parse_guest
 from homelabscribe.htmlsite import page_html
 from homelabscribe.redact import clean_labels, env_names
-from homelabscribe.renderer import yaml_text
+from homelabscribe.renderer import tag_text, yaml_text
 
 text = st.text(max_size=40)
 json_scalar = st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | text
@@ -243,3 +243,11 @@ def test_front_matter_value_is_one_line_and_reads_back_as_the_same_text(value):
     out.encode("utf-8")  # writable to a file
     assert yaml.safe_load(f"key: {out}") == {"key": value}
     assert yaml.safe_load(f"[a, {out}]") == ["a", value]
+
+
+@PROFILE
+@given(st.text(alphabet=st.characters(codec=None), max_size=40))
+def test_front_matter_tag_reads_back_as_the_same_text_in_the_tags_list(category):
+    tag = tag_text(category)
+    assert tag
+    assert yaml.safe_load(f"tags: [homelab, {yaml_text(tag)}]") == {"tags": ["homelab", tag]}
