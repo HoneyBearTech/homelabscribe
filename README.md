@@ -149,7 +149,7 @@ Upgraded to v4 on Oct 3; config moved to /opt/sonarr.
 <!-- homelabscribe:notes:end -->
 ```
 
-HomelabScribe rewrites everything else on the page but copies this block forward untouched. If a service disappears and its page has notes, the page is moved to `archive/` instead of deleted.
+HomelabScribe rewrites everything else on the page but copies this block forward untouched. If a service disappears and its page has notes, the page is moved to `archive/` instead of deleted. A page already in `archive/` is never overwritten: a second page of the same name is saved as `name-2.md`.
 
 ## Commands
 
