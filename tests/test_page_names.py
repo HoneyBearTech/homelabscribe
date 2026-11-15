@@ -355,3 +355,82 @@ def test_the_command_line_prints_a_note_for_each_extra_page_and_exits_0(tmp_path
         assert result.output.count(line) == 1
         assert result.output.index(line) < result.output.index("Updated ")
         assert "skipped:" not in result.output
+
+
+# --- front matter that cannot be read never stops a render -----------------------------------------------
+
+_FILLER = "".join(f"line{i}: {'x' * 60}\n" for i in range(1200))  # about 80 KiB, more than the cap
+
+HOSTILE = {
+    "bad date": "title: 2020-13-45\n",
+    "bad date as a key": "2026-99-99: x\n",
+    "bad timestamp": "modified: 2026-01-01T25:61:00Z\n",
+    "huge integer": f"size: {'9' * 5000}\n",
+    "block bigger than the cap": _FILLER,
+    "not UTF-8 in the block": "x: caf\udce9\n",
+    "a NUL in the block": "x: a\0b\n",
+}
+
+
+def _hostile(path: Path, owner: str, extra: str, host: str | None = "h") -> None:
+    block = f"title: {owner}\n" + (f"host: {host}\n" if host else "") + extra
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(f"---\n{block}---\n# {owner}\n".encode("utf-8", "surrogateescape"))
+
+
+@pytest.mark.parametrize("kind", HOSTILE)
+def test_a_service_page_yaml_cannot_read_has_no_owner_and_the_render_goes_on(tmp_path, kind):
+    page = tmp_path / "services" / "plex-media.md"
+    _hostile(page, "Plex-Media", HOSTILE[kind])  # written for the one the fixed order puts second
+    assert front_matter(page) is None
+    renderer = Renderer(tmp_path)
+    renderer.render(_snap(*CASES["titles that differ only in punctuation"]))
+    coded = tmp_path / "services" / f"plex-media-{_code('h/Plex-Media')}.md"
+    assert front_matter(coded)["title"] == "Plex-Media"  # the fixed order decided
+    assert renderer.notices == [
+        f'"Plex-Media" on h has its own page services/{coded.name} (its name matched "Plex Media")'
+    ]
+    assert (tmp_path / "index.md").is_file()
+
+
+@pytest.mark.parametrize("kind", HOSTILE)
+def test_a_host_page_yaml_cannot_read_has_no_owner_and_the_render_goes_on(tmp_path, kind):
+    page = tmp_path / "hosts" / "nas-1.md"
+    _hostile(page, "nas-1", HOSTILE[kind], host=None)
+    renderer = Renderer(tmp_path)
+    renderer.render(_snap(*CASES["host names that differ only in case and spaces"]))
+    assert front_matter(tmp_path / "hosts" / f"nas-1-{_code('nas-1')}.md")["title"] == "nas-1"
+    assert renderer.notices == [
+        f'host "nas-1" has its own page hosts/nas-1-{_code("nas-1")}.md (its name matched "NAS 1")'
+    ]
+
+
+def test_only_the_start_of_a_page_is_read(tmp_path, monkeypatch):
+    page = tmp_path / "p.md"
+    page.write_text("---\ntitle: Plex-Media\nhost: h\n---\n" + "x" * 2_000_000)
+    assert front_matter(page) == {"title": "Plex-Media", "host": "h"}  # a long body is fine
+    _hostile(page, "Plex-Media", "")
+    assert front_matter(page) == {"title": "Plex-Media", "host": "h"}
+    sizes = []
+    real_open = Path.open
+
+    def spy(self, *args, **kwargs):
+        f = real_open(self, *args, **kwargs)
+        real_read = f.read
+        f.read = lambda n=-1: sizes.append(n) or real_read(n)
+        return f
+
+    monkeypatch.setattr(Path, "open", spy)
+    front_matter(page)
+    assert sizes == [renderer_module.FRONT_MATTER_MAX]
+
+
+def test_front_matter_never_raises(tmp_path, monkeypatch):
+    page = tmp_path / "p.md"
+    page.write_text("---\ntitle: a\n---\n")
+
+    def boom(text):
+        raise TypeError("anything at all")
+
+    monkeypatch.setattr(renderer_module.yaml, "safe_load", boom)
+    assert front_matter(page) is None

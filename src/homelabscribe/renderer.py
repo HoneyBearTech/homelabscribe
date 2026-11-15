@@ -7,6 +7,7 @@ import hashlib
 import itertools
 import os
 import re
+import stat
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
@@ -89,26 +90,38 @@ def coded_name(base: str, key: str, taken: set[str]) -> str:
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-def front_matter(path: Path) -> dict | None:
-    """The front matter of the page at `path` (the `---` block it starts with), or None.
+FRONT_MATTER_MAX = 64 * 1024  # bytes of a page read to find whose page it is
 
-    None for a page that is missing, a link, not a plain file, unreadable or not UTF-8, and for a page
-    without such a block or whose block is not a YAML mapping.
+
+def front_matter(path: Path) -> dict | None:
+    """The front matter of the page at `path` (the `---` block it starts with), or None. Never raises.
+
+    Only the first `FRONT_MATTER_MAX` bytes are read, and the block has to close within them. None for a
+    page that is missing, a link, not a plain file (a pipe or device is never opened) or unreadable, for a
+    block that is not UTF-8 or holds a NUL, for a page without such a block, and for a block that is not
+    a YAML mapping or that YAML cannot read (a date such as `2020-13-45`, a very long number, anything).
     """
-    if path.is_symlink():
-        return None
     try:
-        text = fsutil.read_text(path)
-    except (OSError, UnicodeDecodeError):
+        if path.is_symlink() or not stat.S_ISREG(os.stat(path).st_mode):
+            return None
+        with path.open("rb") as f:
+            head = f.read(FRONT_MATTER_MAX)
+    except (OSError, ValueError):
         return None
-    if not text.startswith("---\n"):
+    if not head.startswith(b"---\n"):
         return None
-    end = text.find("\n---\n", 3)
+    end = head.find(b"\n---\n", 3)
     if end < 0:
         return None
     try:
-        data = yaml.safe_load(text[4:end])
-    except (yaml.YAMLError, RecursionError):
+        text = head[4:end].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if "\0" in text:
+        return None
+    try:
+        data = yaml.safe_load(text)
+    except Exception:  # whatever the reader makes of the text, the page then has no owner
         return None
     return data if isinstance(data, dict) else None
 
