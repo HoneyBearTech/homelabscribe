@@ -11,7 +11,7 @@ HomelabScribe™ has no network API and listens on no port, so there is no OpenA
 | `scan` | config; Docker/Proxmox (read-only) | `state_dir/snapshots/` |
 | `render` | latest snapshot | `output_dir/**.md`; with `html_dir` also `html_dir/**.html` |
 | `run [--every 6h]` | both | both (`--every` is Pro) |
-| `doctor` | config; Docker/Proxmox (connection test) | nothing |
+| `doctor [--bundle [-o FILE]]` | config; Docker/Proxmox (connection test); with `--bundle` also the newest snapshot | nothing; with `--bundle` a redacted archive for a bug report |
 | `demo [-o DIR]` | bundled sample data | `DIR` |
 | `license` | config | nothing (prints license status) |
 | `version` | nothing | nothing |
@@ -33,6 +33,7 @@ Set on your containers: `homelabscribe.name`, `homelabscribe.description`, `home
 - Input: config, optional `catalog_file`.
 - Output: Markdown pages (`index.md`, `hosts/`, `services/`, `archive/`, `routes.md` when a reverse proxy is configured, and Pro `CHANGELOG.md`, `break-glass.md`, `topology.md`), each ending with `<!-- homelabscribe:notes:start -->` / `<!-- homelabscribe:notes:end -->`. With `html_dir`, the same pages as HTML files under `html_dir`, with the same paths and the ending `.html` (`index.html`, `hosts/`, `services/`, `archive/`, ...): complete pages with inline styles, no script and no outside request. Only files that carry the export's generator line are ever replaced or removed there.
 - State: `state_dir/snapshots/*.json`, `state_dir/changelog.json`.
+- Bug-report bundle: `doctor --bundle` runs the same checks as `doctor`, then writes `homelabscribe-bundle-<UTC time>.zip` to the current folder (`-o/--out FILE` picks the file). It holds text files only: `README.txt`, `doctor.txt`, `environment.json`, `config.redacted.yaml` and `snapshot-summary.json`, with names, addresses, secrets and paths masked ([what it holds and what is removed](security.md#the-bug-report-bundle)). An existing file is never overwritten: the command says so and exits with status 1. `--out` without `--bundle` is a usage error. It reads the config, the names of the snapshot files and the newest snapshot, the built-in catalog's categories, the installed package versions, and whether it runs in a container; it creates no folder.
 
 ## Network
 

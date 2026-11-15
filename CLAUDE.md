@@ -38,6 +38,7 @@ Pipeline: **collectors → enrichment → snapshot (JSON) → diff → renderers
 | `collectors/docker.py`, `collectors/proxmox.py` | Read-only data collection. Pure `parse_*` functions do the work so tests never need a daemon. A new source = one new collector with `collect() -> (hosts, services)`. |
 | `models.py` | Pydantic models: `Host`, `Service`, `Snapshot`. The contract between every stage. |
 | `redact.py` | Env var **names only**, sensitive labels and htpasswd hashes dropped. |
+| `bundle.py` | `doctor --bundle`: the redacted archive for bug reports. A config field is masked unless `_RULES` keeps it; from snapshots and servers only counts, version numbers and fixed words. `tests/test_bundle.py` holds the leak test. |
 | `enrich.py` + `catalog.yaml` | Friendly names, plain-English descriptions, categories, Traefik URLs, `homelabscribe.*` label overrides. Matches image base name, then image owner. |
 | `store.py` | Snapshots as timestamped JSON in `state_dir/snapshots/` (keeps 60) and `changelog.json`. |
 | `diff.py` | added / moved / changed / removed between snapshots. |
