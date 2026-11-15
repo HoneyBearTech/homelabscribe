@@ -29,6 +29,7 @@ config ─▶ collectors ─▶ redact ─▶ enrich ─▶ snapshot (JSON) ─�
 | `diff.py` | Changes between snapshots |
 | `notes.py` | The `homelabscribe:notes` block preserved across renders |
 | `renderer.py`, `templates/` | Markdown output; writes only changed files; archives removed pages that hold notes |
+| `htmlsite.py`, `templates/page.html.j2` | Optional static HTML copy of the pages (`html_dir`): converts the Markdown with raw HTML off, checks every link and image, replaces only files it wrote |
 | `pro/` | Pro-only templates under a separate license |
 | `licensing.py` | Offline Ed25519 license verification |
 | `pipeline.py`, `cli.py` | Orchestration, Free-tier limits, command line |

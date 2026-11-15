@@ -44,6 +44,7 @@ Pipeline: **collectors → enrichment → snapshot (JSON) → diff → renderers
 | `diff.py` | added / moved / changed / removed between snapshots. |
 | `notes.py` | The `<!-- homelabscribe:notes:start/end -->` block that survives every re-render. |
 | `renderer.py` + `templates/` | Jinja2 → Markdown. Writes only changed files; archives removed pages that hold notes. |
+| `htmlsite.py` + `templates/page.html.j2` | Static HTML copy of the pages (`html_dir`, Free): Markdown → HTML with markdown-it-py, raw HTML off. Its render rules decide which links and images are written. In `html_dir` it only replaces or removes files that start with its generator line, and it never follows symlinks. |
 | `pro/` | Pro-only templates (changelog, break-glass, topology). **Separate commercial license.** |
 | `licensing.py` | Offline Ed25519 license keys (`LS1.<payload>.<sig>`); `features()` returns enabled Pro features. |
 | `pipeline.py` | `scan()` and `render()`; enforces Free-tier limits (1 Docker host, no Proxmox). |
