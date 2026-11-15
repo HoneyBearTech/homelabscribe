@@ -18,6 +18,7 @@ from homelabscribe import __version__, fsutil, notes
 from homelabscribe.config import BreakGlassConfig
 from homelabscribe.enrich import image_base
 from homelabscribe.models import Host, Service, Snapshot
+from homelabscribe.skip import Skip
 from homelabscribe.store import entry_ok as store_entry_ok
 
 WEB_PORTS = {
@@ -258,7 +259,7 @@ class Renderer:
         self.env.filters["config_vars"] = config_vars
         self.written: list[Path] = []
         self.generated: set[Path] = set()
-        self.skipped: list[str] = []  # `<page> (<reason>)` for each page left alone
+        self.skipped: list[Skip] = []  # `<page> (<reason>)` for each page left alone
 
     # ---- helpers exposed to templates -------------------------------------------------
 
@@ -315,7 +316,7 @@ class Renderer:
     # ---- writing ----------------------------------------------------------------------
 
     def _skip(self, path: Path, reason: str) -> None:
-        self.skipped.append(f"{path.relative_to(self.out).as_posix()} ({reason})")
+        self.skipped.append(Skip(path.relative_to(self.out).as_posix(), reason))
 
     def _write(self, rel: str, content: str) -> None:
         path = self.out / rel
@@ -452,7 +453,7 @@ class Renderer:
             usable = [e for e in changelog or [] if store_entry_ok(e)]
             if len(usable) < len(changelog or []):
                 bad = len(changelog or []) - len(usable)
-                self.skipped.append(f"changelog.json ({bad} entry(ies) not usable, left in the file)")
+                self.skipped.append(Skip("changelog.json", f"{bad} entry(ies) not usable, left in the file"))
             entries = [
                 {"when": _when(datetime.fromisoformat(e["at"])), "changes": e["changes"]}
                 for e in reversed(usable)

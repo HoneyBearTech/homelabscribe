@@ -218,6 +218,15 @@ def test_the_sweep_leaves_what_it_cannot_read_alone(tmp_path):
     assert names == {"services/folder.md", "services/dead.md", "services/stray.md"}
 
 
+def test_files_named_alike_after_a_bracket_are_skipped_one_by_one(tmp_path):
+    snap, _ = _lab(tmp_path)
+    for n in (1, 2):
+        (tmp_path / "services" / f"plex ({n}).md").write_bytes(os.urandom(64) + b"\xff")
+    r = _run(tmp_path, snap)
+    assert [s.path for s in r.skipped] == ["services/plex (1).md", "services/plex (2).md"]
+    assert r.skipped[1] == "services/plex (2).md (not UTF-8, left as it is)"
+
+
 def test_a_stray_page_with_notes_that_is_not_utf8_is_neither_removed_nor_archived(tmp_path):
     snap, page = _lab(tmp_path)
     _damage(page, "latin1")
