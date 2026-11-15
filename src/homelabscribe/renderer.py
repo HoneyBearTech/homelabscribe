@@ -142,7 +142,7 @@ _NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) 
 
 
 def _fill(fd: int, data: bytes) -> None:
-    """Write all of `data` to the new file open at `fd` and close it."""
+    """Write all of `data` to the new file open at `fd`, flush it to disk and close it."""
     try:
         f = os.fdopen(fd, "wb")
     except BaseException:
@@ -150,6 +150,8 @@ def _fill(fd: int, data: bytes) -> None:
         raise
     with f:
         f.write(data)
+        f.flush()
+        os.fsync(f.fileno())  # on disk before the page is removed, so a crash cannot leave a short copy
 
 
 def _archive(page: Path, folder: Path) -> Path:
@@ -159,9 +161,9 @@ def _archive(page: Path, folder: Path) -> Path:
     taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
     each name is taken by creating a new file in one step, which fails if the name exists. The copy holds
     the page's bytes and is created with the page's permissions (the umask may narrow them). The page is
-    removed only once its copy is complete; if anything fails, the error is raised, the page stays where
-    it was and the file this call created is removed. A page that is a link is copied as the text it
-    points to, and then only the link is removed.
+    removed only once its copy is complete and on disk; if anything fails, the error is raised, the page
+    stays where it was and the file this call created is removed. A page that is a link is copied as the
+    text it points to, and then only the link is removed.
     """
     with page.open("rb") as source:
         read = os.fstat(source.fileno())

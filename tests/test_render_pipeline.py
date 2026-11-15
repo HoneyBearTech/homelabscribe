@@ -1,6 +1,7 @@
 import os
 import re
 import stat
+from pathlib import Path
 
 import pytest
 import yaml
@@ -208,6 +209,39 @@ def test_a_failed_archiving_keeps_the_page_and_leaves_no_partial_file(tmp_path, 
 
     monkeypatch.setattr(renderer_module, "_fill", fill_part_way)
     with pytest.raises(OSError, match="No space left"):
+        Renderer(tmp_path).render(snap)
+    assert (tmp_path / "services" / "plex.md").read_bytes() == data
+    assert not list((tmp_path / "archive" / "services").iterdir())
+
+
+def test_the_copy_is_on_disk_before_the_page_is_removed(tmp_path, monkeypatch):
+    snap, _ = _ready_to_archive(tmp_path)
+    events = []
+    real_fsync, real_unlink = os.fsync, Path.unlink
+
+    def fsync(fd):
+        events.append(("fsync", os.fstat(fd).st_ino))
+        real_fsync(fd)
+
+    def unlink(path, missing_ok=False):
+        events.append(("unlink", path))
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    Renderer(tmp_path).render(snap)
+    copy = (tmp_path / "archive" / "services" / "plex.md").stat().st_ino
+    assert events.index(("fsync", copy)) < events.index(("unlink", tmp_path / "services" / "plex.md"))
+
+
+def test_a_failed_flush_to_disk_keeps_the_page_and_leaves_no_file(tmp_path, monkeypatch):
+    snap, data = _ready_to_archive(tmp_path)
+
+    def fsync(fd):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    with pytest.raises(OSError, match="Input/output error"):
         Renderer(tmp_path).render(snap)
     assert (tmp_path / "services" / "plex.md").read_bytes() == data
     assert not list((tmp_path / "archive" / "services").iterdir())
