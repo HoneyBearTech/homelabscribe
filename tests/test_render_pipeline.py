@@ -78,6 +78,17 @@ def _with_notes(page, text):
     page.write_text(page.read_text().replace(notes.PLACEHOLDER, text))
 
 
+def _plex_archived(data: bytes) -> bytes:
+    """The bytes of the demo's Plex page as archived with Plex gone: its two links point at the live pages."""
+    for old, new in (
+        (b"](../hosts/nova.md)", b"](../../hosts/nova.md)"),
+        (b"](overseerr.md)", b"](../../services/overseerr.md)"),
+    ):
+        assert data.count(old) == 1
+        data = data.replace(old, new)
+    return data
+
+
 def _archive_page(out, snap, folder, name, text):
     """Render the lab (the page comes back with an empty notes block), give the page notes, remove it."""
     Renderer(out).render(snap)
@@ -171,7 +182,7 @@ def test_the_archived_page_keeps_its_bytes(tmp_path):
     page.write_bytes(data)
     snap.services = [s for s in snap.services if s.name != "plex"]
     Renderer(tmp_path).render(snap)
-    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == data
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == _plex_archived(data)
 
 
 def test_a_page_that_is_a_link_is_archived_as_a_copy_and_its_target_is_kept(tmp_path):
@@ -187,7 +198,7 @@ def test_a_page_that_is_a_link_is_archived_as_a_copy_and_its_target_is_kept(tmp_
     Renderer(out).render(snap)
     assert mine.read_bytes() == data  # the file the link pointed to is unchanged
     copy = out / "archive" / "services" / "plex.md"
-    assert not copy.is_symlink() and copy.read_bytes() == data
+    assert not copy.is_symlink() and copy.read_bytes() == _plex_archived(data)
     assert not page.exists() and not page.is_symlink()  # only the link itself is removed
 
 
@@ -262,7 +273,7 @@ def test_a_file_system_that_cannot_sync_still_archives(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "fsync", fsync)
     Renderer(tmp_path).render(snap)
     assert not (tmp_path / "services" / "plex.md").exists()
-    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == data
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == _plex_archived(data)
 
 
 def test_a_page_saved_while_it_is_copied_is_kept_for_the_next_run(tmp_path, monkeypatch):
@@ -284,7 +295,7 @@ def test_a_page_saved_while_it_is_copied_is_kept_for_the_next_run(tmp_path, monk
     monkeypatch.undo()
     Renderer(tmp_path).render(snap)
     assert not page.exists()
-    assert (tmp_path / "archive" / "services" / "plex.md").read_text() == newer
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == _plex_archived(newer.encode())
 
 
 def test_the_clean_up_never_removes_a_file_that_took_the_copys_place(tmp_path, monkeypatch):

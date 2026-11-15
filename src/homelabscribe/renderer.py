@@ -11,6 +11,7 @@ import stat
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -19,7 +20,7 @@ from typing import TypeVar
 import yaml
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 
-from homelabscribe import __version__, fsutil, notes
+from homelabscribe import __version__, fsutil, notes, relink
 from homelabscribe.config import BreakGlassConfig
 from homelabscribe.enrich import image_base
 from homelabscribe.models import Host, Service, Snapshot
@@ -273,19 +274,26 @@ def _remove_own(path: Path, made: os.stat_result) -> None:
         path.unlink()
 
 
-def _archive(page: Path, folder: Path) -> Path | None:
-    """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy.
+@dataclass
+class _Copy:
+    """A page about to be archived: its bytes and version as read, and the new file that holds its name."""
+
+    page: Path
+    data: bytes
+    read: os.stat_result
+    dest: Path
+    fd: int
+    made: os.stat_result
+
+
+def _reserve(page: Path, folder: Path) -> _Copy:
+    """Read `page` and take a name in `folder` that nothing has, for its copy. Raises OSError on failure.
 
     The first name tried is the page's own (`plex.md`), then `plex-2.md`, `plex-3.md` and so on. A name is
     taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
-    each name is taken by creating a new file in one step, which fails if the name exists. The copy holds
-    the page's bytes and is created with the page's permissions (the umask may narrow them). The page is
-    removed only once its copy is complete and on disk, and only if it is still the file that was read,
-    unchanged. If it was saved again in the meantime, the copy is removed and None is returned: the page
-    stays for the next run. If anything fails, the error is raised, the page stays where it was and the
-    copy is removed. Just before a copy is removed, its name is checked to still hold the file this call
-    created; a file that takes the name in the instant between that check and the removal is not protected.
-    A page that is a link is copied as the text it points to, and then only the link is removed.
+    each name is taken by creating a new file in one step, which fails if the name exists. The new file is
+    created with the page's permissions (the umask may narrow them) and stays open, empty, until `_archive`
+    fills it or `_drop` removes it. A page that is a link is read as the text it points to.
     """
     with page.open("rb") as source:
         read = os.fstat(source.fileno())
@@ -303,17 +311,58 @@ def _archive(page: Path, folder: Path) -> Path | None:
     except BaseException:
         os.close(fd)
         raise
+    return _Copy(page, data, read, dest, fd, made)
+
+
+def _drop(copy: _Copy) -> None:
+    """Close the copy that `_reserve` made, without filling it, and remove it. Never raises an OSError."""
+    with contextlib.suppress(OSError):
+        os.close(copy.fd)
+    with contextlib.suppress(OSError):
+        _remove_own(copy.dest, copy.made)
+
+
+def _archive(copy: _Copy, data: bytes) -> Path | None:
+    """Write `data` (the page's bytes, its links fixed) to the copy `_reserve` made, then remove the page.
+    Returns the archived copy.
+
+    The page is removed only once its copy is complete and on disk, and only if it is still the file that
+    was read, unchanged. If it was saved again in the meantime, the copy is removed and None is returned:
+    the page stays for the next run. If anything fails, the error is raised, the page stays where it was
+    and the copy is removed. Just before a copy is removed, its name is checked to still hold the file
+    `_reserve` created; a file that takes the name in the instant between that check and the removal is
+    not protected. A page that is a link is copied as the text it points to, and then only the link is
+    removed.
+    """
     try:
-        _fill(fd, data)
-        if not _still(page, read):  # saved again while it was copied: the copy would hold older text
-            _remove_own(dest, made)
+        _fill(copy.fd, data)
+        # Saved again while it was copied: the copy would hold older text.
+        if not _still(copy.page, copy.read):
+            _remove_own(copy.dest, copy.made)
             return None
-        page.unlink()
+        copy.page.unlink()
     except BaseException:
-        with contextlib.suppress(OSError):  # the file this call created: never one that was there before
-            _remove_own(dest, made)
+        with contextlib.suppress(OSError):  # the file `_reserve` created: never one that was there before
+            _remove_own(copy.dest, copy.made)
         raise
-    return dest
+    return copy.dest
+
+
+def _plain_file(path: Path) -> bool:
+    """True when `path` is a plain file itself, not a link to one."""
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _relinked(data: bytes, folder: str, where: relink.Where) -> bytes:
+    """The bytes of a page from `folder` with its generated links fixed (`relink`); unchanged if not UTF-8."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:  # changed since it was read as UTF-8: copied as it is
+        return data
+    return relink.relink(text, folder, where).encode("utf-8")
 
 
 class Renderer:
@@ -622,42 +671,83 @@ class Renderer:
     def _read(path: Path) -> str:
         return fsutil.read_text(path)
 
-    def _sweep(self, folder: str) -> None:
-        """Pages for services that no longer exist: archive if they hold notes, else delete.
+    def _sweep(self) -> None:
+        """Pages for services and hosts that no longer exist: archive if they hold notes, else delete.
 
         A page that cannot be read or is not UTF-8 is never deleted or archived: it is left as it is.
+        First every page's fate is decided, in `services/` and then `hosts/`, and each page to archive
+        takes its name in `archive/` (`_reserve`). Only then are the copies written, with their generated
+        links pointed at where each page is after this run (`_where`), so a page archived as `plex-2.md`
+        is linked as that. If a copy cannot be finished after all, the links to it already written keep its
+        name, which is the one it normally gets when it is archived on the next run.
         """
-        d = self.out / folder
-        if not d.is_dir():
-            return
-        for f in sorted(d.glob("*.md")):
-            if f in self.generated:
-                continue
-            try:
-                kept = notes.extract(self._read(f))
-            except UnicodeDecodeError:
-                self._skip(f, "not UTF-8, left as it is")
-                continue
-            except OSError:
-                self._skip(f, "could not be read, left as it is")
-                continue
-            if kept and kept.strip() != notes.PLACEHOLDER:
-                dest = self.out / "archive" / folder
-                try:
-                    dest.mkdir(parents=True, exist_ok=True)
-                    archived = _archive(f, dest)
-                except OSError:  # no room, no permission, no folder: the page and its notes stay
-                    self._skip(f, "could not be archived, left as it is")
+        plan: list[tuple[Path, _Copy | str | None]] = []  # a copy to write, a reason to skip, or None: delete
+        try:
+            for folder in ("services", "hosts"):
+                d = self.out / folder
+                for f in sorted(d.glob("*.md")) if d.is_dir() else []:
+                    if f not in self.generated:
+                        plan.append((f, self._fate(f, folder)))
+            copies = {(f.parent.name, f.name): c for f, c in plan if isinstance(c, _Copy)}
+            where = partial(self._where, live=self._live(), copies=copies)
+            for i, (f, fate) in enumerate(plan):
+                if isinstance(fate, str):
+                    self._skip(f, fate)
                     continue
-                if archived is None:  # saved while it was copied: left as it is, for the next run
-                    continue
-            else:
-                try:
-                    f.unlink()
-                except OSError:
-                    self._skip(f, "could not be removed, left as it is")
-                    continue
-            self.written.append(f)
+                if fate is None:
+                    try:
+                        f.unlink()
+                    except OSError:
+                        self._skip(f, "could not be removed, left as it is")
+                        continue
+                else:
+                    plan[i] = (f, None)  # `_archive` finishes or removes the copy, whatever happens
+                    try:
+                        archived = _archive(fate, _relinked(fate.data, f.parent.name, where))
+                    except OSError:  # no room, no permission: the page and its notes stay
+                        self._skip(f, "could not be archived, left as it is")
+                        continue
+                    if archived is None:  # saved while it was copied: left as it is, for the next run
+                        continue
+                self.written.append(f)
+        finally:
+            for _, fate in plan:  # copies never written, after an error that ends the run
+                if isinstance(fate, _Copy):
+                    _drop(fate)
+
+    def _fate(self, page: Path, folder: str) -> _Copy | str | None:
+        """What happens to a page that was not written in this run: its copy in `archive/<folder>/` when it
+        holds notes, None when it is to be deleted, or why it is left as it is."""
+        try:
+            kept = notes.extract(self._read(page))
+        except UnicodeDecodeError:
+            return "not UTF-8, left as it is"
+        except OSError:
+            return "could not be read, left as it is"
+        if not kept or kept.strip() == notes.PLACEHOLDER:
+            return None
+        dest = self.out / "archive" / folder
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            return _reserve(page, dest)
+        except OSError:  # no room, no permission, no folder: the page and its notes stay
+            return "could not be archived, left as it is"
+
+    def _live(self) -> set[Path]:
+        """The service and host pages written or confirmed in this run that are on disk as plain files."""
+        folders = {self.out / "services", self.out / "hosts"}
+        return {p for p in self.generated if p.parent in folders and _plain_file(p)}
+
+    def _where(
+        self, folder: str, name: str, *, live: set[Path], copies: dict[tuple[str, str], _Copy]
+    ) -> str | None:
+        """Where the page `<folder>/<name>.md` is after this run, below the output folder: there, when it is
+        `live`; its copy in `archive/`, when it is being archived; else nowhere (None)."""
+        page = f"{name}.md"
+        if self.out / folder / page in live:
+            return f"{folder}/{page}"
+        copy = copies.get((folder, page))
+        return None if copy is None else copy.dest.relative_to(self.out).as_posix()
 
     def render(
         self,
@@ -760,6 +850,5 @@ class Renderer:
                 ),
             )
 
-        self._sweep("services")
-        self._sweep("hosts")
+        self._sweep()
         return self.written
