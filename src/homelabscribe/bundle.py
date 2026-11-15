@@ -213,7 +213,8 @@ _SOURCES: dict[str, tuple[type[BaseModel], str]] = {
     "npm": (NpmConfig, "Nginx Proxy Manager"),
     "proxmox": (ProxmoxConfig, "Proxmox"),
 }
-_VERSION = re.compile(r"\d+(?:\.\d+)*")
+_VERSION = re.compile(r"\d{1,4}(?:\.\d{1,4}){0,2}(?!\.?\d)")
+_MAX_COUNT = 999_999
 _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}")
 _INSTALLED = re.compile(r"[0-9A-Za-z.+!_-]{1,40}")
 _PLAIN = re.compile(r"[A-Za-z0-9_.-]{1,40}")
@@ -240,17 +241,20 @@ class Check:
 
 
 def version_number(value: object) -> str:
-    """A version a server sent, as its leading dotted number (`27.3.1`); anything else is `unknown`."""
+    """A version a server sent, as its leading number of up to three dotted parts (`27.3.1`).
+
+    Anything else, such as an address or a longer dotted number, is `unknown`.
+    """
     m = _VERSION.match(value) if isinstance(value, str) else None
-    return m.group(0) if m and len(m.group(0)) <= 32 else UNKNOWN
+    return m.group(0) if m else UNKNOWN
 
 
 def whole_number(value: object) -> int | str:
-    """A count a server sent, as a whole number; anything else is `unknown`."""
-    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-        return value
+    """A count a server sent, as a whole number from 0 to 999999; anything else is `unknown`."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value if 0 <= value <= _MAX_COUNT else UNKNOWN
     if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 12:
-        return int(value)
+        return int(value) if int(value) <= _MAX_COUNT else UNKNOWN
     return UNKNOWN
 
 
@@ -388,18 +392,17 @@ def snapshot_summary(state_dir: Path) -> dict:
     summary: dict[str, object] = {"snapshots": len(files)}
     try:
         snap = Snapshot.model_validate_json(files[-1].read_text())
+        summary["newest"] = {
+            "readable": True,
+            "taken_at": snap.taken_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "hosts_by_kind": _tally((h.kind for h in snap.hosts), HOST_KINDS),
+            "services_by_kind": _tally((s.kind for s in snap.services), SERVICE_KINDS),
+            "services_by_status": _tally((s.status for s in snap.services), STATUSES),
+            "services_by_category": _tally((s.category for s in snap.services), catalog_categories()),
+            "routes": len(snap.routes),
+        }
     except Exception as e:
         summary["newest"] = {"readable": False, "error": type_name(type(e).__name__)}
-        return summary
-    summary["newest"] = {
-        "readable": True,
-        "taken_at": snap.taken_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "hosts_by_kind": _tally((h.kind for h in snap.hosts), HOST_KINDS),
-        "services_by_kind": _tally((s.kind for s in snap.services), SERVICE_KINDS),
-        "services_by_status": _tally((s.status for s in snap.services), STATUSES),
-        "services_by_category": _tally((s.category for s in snap.services), catalog_categories()),
-        "routes": len(snap.routes),
-    }
     return summary
 
 
@@ -466,5 +469,10 @@ def create(cfg: Config, config_path: Path | None, checks: Iterable[Check], out: 
     path = out if out is not None else Path(default_name(now))
     data = build(cfg, config_path, checks, now)
     with path.open("xb") as f:
-        f.write(data)
+        try:
+            f.write(data)
+        except OSError:
+            f.close()
+            path.unlink(missing_ok=True)
+            raise
     return path
