@@ -9,7 +9,7 @@ import os
 import re
 import stat
 import unicodedata
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from functools import partial
@@ -128,6 +128,12 @@ def front_matter(path: Path) -> dict | None:
     except Exception:  # whatever the reader makes of the text, the page then has no owner
         return None
     return data if isinstance(data, dict) else None
+
+
+def page_key(s: Service) -> str:
+    """What the page of a look-alike says it was written for (`id:`): host, name and kind, and the number
+    of a VM or LXC. It does not depend on which other services there are."""
+    return f"{s.id}/{s.kind}" + ("" if s.vmid is None else f"/{s.vmid}")
 
 
 def tag_text(category: str) -> str:
@@ -346,42 +352,48 @@ class Renderer:
             # Add the host only when two services share a title.
             return slug(s.title) if titles[s.title.lower()] == 1 else slug(f"{s.title}-{s.host}")
 
-        shared_ids = Counter((base(s), s.id) for s in services)
-
-        def page_key(s: Service) -> str:
-            # The id, and when another look-alike has the same id (a VM and a container named alike, two
-            # guests of one name), what tells them apart: the kind, and the VM or LXC number.
-            if shared_ids[(base(s), s.id)] == 1:
-                return s.id
-            return f"{s.id}/{s.kind}" + ("" if s.vmid is None else f"/{s.vmid}")
+        look_alikes: dict[str, list[Service]] = defaultdict(list)
+        for s in services:
+            look_alikes[base(s)].append(s)
 
         def same_title_and_host(fm: dict, s: Service) -> bool:
             title, host = replace_surrogates(s.title), replace_surrogates(s.host)
             return fm.get("title") == title and fm.get("host") == host
 
+        def with_page_id(fm: dict, group: list[Service]) -> list[Service]:
+            # The members the page's `id` names: by `page_key`, or by the shorter `<host>/<name>` of an
+            # older page when that is one member's only.
+            page_id = fm.get("id")
+            full = [s for s in group if page_id == replace_surrogates(page_key(s))]
+            older = [s for s in group if page_id == replace_surrogates(s.id)]
+            return full or (older if len(older) == 1 else [])
+
+        def named_by(fm: dict, s: Service) -> bool:
+            return any(o is s for o in with_page_id(fm, look_alikes[base(s)]))
+
         def service_owner(fm: dict, group: list[Service]) -> Service | None:
             # The page's `id` first; else its title and host, if they are one member's only.
-            by_id = [s for s in group if fm.get("id") == replace_surrogates(page_key(s))]
+            by_id = with_page_id(fm, group)
             if len(by_id) == 1:
                 return by_id[0]
             alike = [s for s in by_id or group if same_title_and_host(fm, s)]
             if len(alike) == 1:
                 return alike[0]
-            return by_id[0] if by_id else None  # an id two services share: the first in the fixed order
+            return by_id[0] if by_id else None  # services the same in every way: the first in the fixed order
 
         def service_keys(s: Service, group: list[Service]) -> list[str]:
-            # What the code is made from: host and title, and the id too when another member has both.
+            # What the code is made from: host and title, and the page key too when another member has both.
             short, long = f"{s.host}/{s.title}", f"{s.host}/{s.title}/{page_key(s)}"
             shared = sum(o.host == s.host and o.title == s.title for o in group) > 1
             return [long, short] if shared else [short, long]
 
         def service_claims(fm: dict, s: Service) -> bool:
-            return fm.get("id") == replace_surrogates(page_key(s)) and same_title_and_host(fm, s)
+            return named_by(fm, s) and same_title_and_host(fm, s)
 
         def service_foreign(fm: dict, s: Service) -> bool:
             # A page written for another service: its id (or, without one, its title and host) is another's.
             if "id" in fm:
-                return fm["id"] != replace_surrogates(page_key(s))
+                return not named_by(fm, s)
             return not same_title_and_host(fm, s)
 
         def fixed_order(s: Service) -> tuple:
