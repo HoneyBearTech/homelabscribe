@@ -94,15 +94,20 @@ def _escape_char(c: str) -> str:
     return f"\\u{n:04X}" if n <= 0xFFFF else f"\\U{n:08X}"
 
 
+_SURROGATES = re.compile("[\ud800-\udfff]")
+
+
 def yaml_text(value: object) -> str:
     """A text as a one-line YAML scalar that every YAML reader reads back as exactly the same str.
 
     Ordinary text stays plain, so existing pages do not change. Anything else is written as a
-    double-quoted scalar with escapes for line breaks, quotes, backslashes, control characters, the
-    characters YAML does not allow raw or treats as line breaks, and lone surrogates (which cannot be
-    written to a UTF-8 file as they are; the escape keeps them out of the file and stops no render).
+    double-quoted scalar with escapes for line breaks, quotes, backslashes, control characters and the
+    characters YAML does not allow raw or treats as line breaks. A lone surrogate cannot be part of a
+    text file, so U+FFFD (the replacement character) is written in its place; every other text reads
+    back as exactly the same str.
     """
     text = value if isinstance(value, str) else str(value)
+    text = _SURROGATES.sub("\ufffd", text)
     if _plain_ok(text):
         return text
     return '"' + "".join(_escape_char(c) for c in text) + '"'
