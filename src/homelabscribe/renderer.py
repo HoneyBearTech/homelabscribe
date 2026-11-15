@@ -9,7 +9,7 @@ import os
 import re
 import stat
 import unicodedata
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
@@ -345,13 +345,22 @@ class Renderer:
             # Add the host only when two services share a title.
             return slug(s.title) if titles[s.title.lower()] == 1 else slug(f"{s.title}-{s.host}")
 
+        shared_ids = Counter((base(s), s.id) for s in services)
+
+        def page_key(s: Service) -> str:
+            # The id, and when another look-alike has the same id (a VM and a container named alike, two
+            # guests of one name), what tells them apart: the kind, and the VM or LXC number.
+            if shared_ids[(base(s), s.id)] == 1:
+                return s.id
+            return f"{s.id}/{s.kind}" + ("" if s.vmid is None else f"/{s.vmid}")
+
         def same_title_and_host(fm: dict, s: Service) -> bool:
             title, host = replace_surrogates(s.title), replace_surrogates(s.host)
             return fm.get("title") == title and fm.get("host") == host
 
         def service_owner(fm: dict, group: list[Service]) -> Service | None:
             # The page's `id` first; else its title and host, if they are one member's only.
-            by_id = [s for s in group if fm.get("id") == replace_surrogates(s.id)]
+            by_id = [s for s in group if fm.get("id") == replace_surrogates(page_key(s))]
             if len(by_id) == 1:
                 return by_id[0]
             alike = [s for s in by_id or group if same_title_and_host(fm, s)]
@@ -361,16 +370,20 @@ class Renderer:
 
         def service_keys(s: Service, group: list[Service]) -> list[str]:
             # What the code is made from: host and title, and the id too when another member has both.
-            short, long = f"{s.host}/{s.title}", f"{s.host}/{s.title}/{s.id}"
+            short, long = f"{s.host}/{s.title}", f"{s.host}/{s.title}/{page_key(s)}"
             shared = sum(o.host == s.host and o.title == s.title for o in group) > 1
             return [long, short] if shared else [short, long]
 
         def service_claims(fm: dict, s: Service) -> bool:
-            return fm.get("id") == replace_surrogates(s.id) and same_title_and_host(fm, s)
+            return fm.get("id") == replace_surrogates(page_key(s)) and same_title_and_host(fm, s)
 
         def fixed_order(s: Service) -> tuple:
-            # A service whose own title is unique first (its name is that title), then title, host, names.
-            return titles[s.title.lower()] != 1, s.title, s.host, s.name, s.compose_service or "", s.kind
+            # A service whose own title is unique first (its name is that title), then title, host, names,
+            # kind and VM or LXC number; last everything else known about it, so that only services that
+            # are the same in every way could come in the order of the scan (and their pages are the same).
+            vmid = -1 if s.vmid is None else s.vmid
+            head = (titles[s.title.lower()] != 1, s.title, s.host, s.name, s.compose_service or "", s.kind)
+            return (*head, vmid, s.model_dump_json())
 
         service_names, service_extra, grouped = self._names(
             "services", services, base, fixed_order, service_owner, service_keys, service_claims
@@ -408,7 +421,7 @@ class Renderer:
 
         def page_id(s: Service) -> str | None:
             # Only on the pages of services whose page names clashed: the others stay as they were.
-            return s.id if id(s) in grouped else None
+            return page_key(s) if id(s) in grouped else None
 
         def address(s: Service) -> str | None:
             if s.url:

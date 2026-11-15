@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from homelabscribe import htmlsite, licensing, notes
 from homelabscribe import renderer as renderer_module
 from homelabscribe.cli import app
+from homelabscribe.collectors.proxmox import parse_guest
 from homelabscribe.demo import demo_snapshots
 from homelabscribe.enrich import enrich, load_catalog
 from homelabscribe.models import Host, Service, Snapshot
@@ -539,17 +540,58 @@ def test_an_owner_page_with_an_unknown_id_falls_back_to_title_and_host(tmp_path)
     assert _ids(tmp_path)["plex-h"] == "h/b"
 
 
-def test_services_that_share_an_id_get_two_pages_and_keep_them(tmp_path):
-    # A VM and a container named alike on one host have the same id: the fixed order (by kind) decides.
-    lab = [_svc("x", "h", "Plex", kind="vm"), _svc("x", "h", "Plex", kind="container")]
-    snap = Snapshot(hosts=[Host(name="h", kind="docker")], services=lab, taken_at=TAKEN_AT)
-    Renderer(tmp_path).render(snap)
-    key = _code("h/Plex/h/x", 64)
-    assert set(_ids(tmp_path)) == {"plex-h", f"plex-h-{key[:8]}"}
-    first = {p.name: p.read_text() for p in (tmp_path / "services").glob("*.md")}
-    snap.services.reverse()
-    Renderer(tmp_path).render(snap)
-    assert {p.name: p.read_text() for p in (tmp_path / "services").glob("*.md")} == first
+def _guest(vmid: int, name: str = "Plex") -> Service:
+    return parse_guest({"name": name, "vmid": vmid, "status": "running"}, {}, "h", "vm")
+
+
+def _lab(services: list[Service]) -> Snapshot:
+    return Snapshot(hosts=[Host(name="h", kind="proxmox-node")], services=services, taken_at=TAKEN_AT)
+
+
+def _service_pages_written(out: Path, snap: Snapshot) -> list[str]:
+    return sorted(p.name for p in Renderer(out).render(snap) if p.parent.name == "services")
+
+
+def test_two_guests_with_one_name_keep_their_pages_and_notes_in_any_scan_order(tmp_path):
+    first, second = _guest(101), _guest(102)
+    assert first.id == second.id == "h/Plex"
+    Renderer(tmp_path).render(_lab([first, second]))
+    coded = f"plex-h-{_code('h/Plex/h/Plex/vm/102')}"
+    assert _ids(tmp_path) == {"plex-h": "h/Plex/vm/101", coded: "h/Plex/vm/102"}
+    _add_notes(tmp_path / "services" / "plex-h.md", "VM 101 notes.")
+    _add_notes(tmp_path / "services" / f"{coded}.md", "VM 102 notes.")
+    for run in range(4):
+        lab = [first, second] if run % 2 else [second, first]
+        assert _service_pages_written(tmp_path, _lab(lab)) == []  # notes and pages stay put
+        assert _ids(tmp_path) == {"plex-h": "h/Plex/vm/101", coded: "h/Plex/vm/102"}
+        assert _notes_of(tmp_path) == {"h/Plex/vm/101": "VM 101 notes.", "h/Plex/vm/102": "VM 102 notes."}
+        assert "| Proxmox ID | 101 (VM) |" in (tmp_path / "services" / "plex-h.md").read_text()
+        assert "| Proxmox ID | 102 (VM) |" in (tmp_path / "services" / f"{coded}.md").read_text()
+    assert Renderer(tmp_path).render(_lab([first, second])) == []  # the same scan again: nothing written
+    assert not (tmp_path / "archive").exists()
+
+
+def test_a_vm_and_a_container_that_share_a_name_keep_their_pages(tmp_path):
+    vm = Service(name="x", host="h", kind="vm", display_name="Plex", vmid=7)
+    box = Service(name="x", host="h", kind="container", display_name="Plex")
+    Renderer(tmp_path).render(_lab([vm, box]))
+    coded = f"plex-h-{_code('h/Plex/h/x/vm/7')}"
+    assert _ids(tmp_path) == {"plex-h": "h/x/container", coded: "h/x/vm/7"}  # the fixed order: by kind
+    _add_notes(tmp_path / "services" / "plex-h.md", "The container.")
+    _add_notes(tmp_path / "services" / f"{coded}.md", "The VM.")
+    for lab in ([box, vm], [vm, box], [box, vm]):
+        assert _service_pages_written(tmp_path, _lab(lab)) == []
+        assert _notes_of(tmp_path) == {"h/x/container": "The container.", "h/x/vm/7": "The VM."}
+    assert Renderer(tmp_path).render(_lab([box, vm])) == []
+
+
+def test_services_the_same_in_every_way_get_two_pages_whatever_the_scan_order(tmp_path):
+    twins = [Service(name="x", host="h", kind="manual", display_name="Plex") for _ in range(2)]
+    Renderer(tmp_path).render(_lab(twins))
+    pages = {p.name: p.read_text() for p in (tmp_path / "services").glob("*.md")}
+    assert len(pages) == 2 and set(_ids(tmp_path).values()) == {"h/x/manual"}
+    twins.reverse()
+    assert _service_pages_written(tmp_path, _lab(twins)) == []
 
 
 def test_only_pages_of_look_alikes_have_an_id(tmp_path):
