@@ -2,6 +2,7 @@
 
 output_dir: /docs          # where Markdown is written (e.g. a folder in your Obsidian vault)
 state_dir: /data/.homelabscribe   # snapshots and changelog history
+# html_dir: /data/html     # also write the pages as plain HTML here; a folder of its own (in Docker, mount a volume)
 
 docker_hosts:
   - name: nova                       # how this host is named in the docs

@@ -5,7 +5,7 @@ pipx upgrade homelabscribe          # pip install
 docker compose pull && docker compose run --rm homelabscribe   # Docker
 ```
 
-Read the [changelog](../CHANGELOG.md) first. Before 1.0, minor releases may change configuration or defaults; the changelog says so under **Changed**.
+Read the [changelog](../CHANGELOG.md) first. Before 1.0, minor releases may change configuration or defaults; the changelog says so under **Changed**. What 1.0 is meant to keep stable is drafted in the [compatibility promise](compatibility.md).
 
 ## What state exists
 

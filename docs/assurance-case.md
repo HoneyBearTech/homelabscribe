@@ -36,10 +36,10 @@ Nothing else is trusted or contacted.
 
 | Weakness class | Counter |
 | --- | --- |
-| Injection (template, YAML, shell) | Templates are bundled (no user-supplied template path; output is Markdown, so HTML autoescaping is off by design), `safe_load`, no shell invocation, CI never interpolates untrusted event data into `run:` |
+| Injection (template, YAML, shell, HTML) | Templates are bundled (no user-supplied template path). The Markdown templates run with HTML autoescaping off by design, because what they write is Markdown. The optional HTML copy (`html_dir`) is kept free of injected markup: the Markdown converter has raw HTML turned off, so HTML in a label, a description, a Proxmox note or your notes is shown as text; a link is written only if it is relative, a fragment, `http`, `https` or `mailto`, and an image only if its address is relative; the page template autoescapes what it inserts; and every page carries a Content-Security-Policy that allows no script and has no script of its own. A property in `tests/test_fuzz_parsers.py` feeds it arbitrary page text. `safe_load`, no shell invocation, CI never interpolates untrusted event data into `run:` |
 | Sensitive data exposure | Redaction + tests, documented output sensitivity |
 | Unsafe deserialization | JSON snapshots validated by Pydantic; no pickle |
-| Path traversal in output | Page filenames come from `slug()`, which reduces names to `[a-z0-9-]` |
+| Path traversal in output | Page filenames come from `slug()`, which reduces names to `[a-z0-9-]`. The HTML copy mirrors those paths in a folder of its own (`html_dir` may not overlap the Markdown or state folder), replaces or removes only files it wrote, and does not follow symbolic links |
 | Weak crypto | Standard `cryptography` Ed25519; no home-grown crypto |
 | Malformed input crashing a parser | Hypothesis fuzz tests (`tests/test_fuzz_parsers.py`) run in CI |
 | Known-vulnerable components | Automated updates, dependency review, remediation SLAs in [dependencies](dependencies.md) |

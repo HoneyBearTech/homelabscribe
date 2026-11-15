@@ -13,6 +13,7 @@
 | [Dependencies](dependencies.md) | How dependencies are chosen, tracked and updated |
 | [Verifying releases](verifying-releases.md) | Check signatures, checksums, SBOM and provenance |
 | [Roadmap](roadmap.md) | The next ~12 months, and what HomelabScribe will not do |
+| [Compatibility promise (draft)](compatibility.md) | What 1.0 is meant to keep stable within a major version, and what it leaves open |
 | [Accessibility and internationalization](accessibility.md) | Status for a CLI that writes Markdown |
 
 Project policies: [Security policy](../SECURITY.md) · [Contributing](../CONTRIBUTING.md) · [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Changelog](../CHANGELOG.md) · [Trademarks](../TRADEMARKS.md)

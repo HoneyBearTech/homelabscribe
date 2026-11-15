@@ -77,10 +77,18 @@ def scan(config: Path = ConfigOpt, strict: bool = StrictOpt):
 
 @app.command()
 def render(config: Path = ConfigOpt):
-    """Write Markdown docs from the latest snapshot."""
+    """Write Markdown docs from the latest snapshot (and their HTML copy, when `html_dir` is set)."""
     cfg, feats, _ = _load(config)
-    written = pipeline.render(cfg, feats)
-    typer.echo(f"Updated {len(written)} file(s) in {cfg.output_dir}.")
+    problem = pipeline.html_dir_problem(cfg)
+    if problem:
+        typer.secho(problem, fg="red")
+        raise typer.Exit(1)
+    rendered = pipeline.render_pages(cfg, feats)
+    typer.echo(f"Updated {len(rendered.written)} file(s) in {cfg.output_dir}.")
+    if rendered.html:
+        for page in rendered.html.skipped:
+            typer.secho(f"  skipped: {page}", fg="yellow")
+        typer.echo(f"Updated {len(rendered.html.changed)} HTML file(s) in {cfg.html_dir}.")
 
 
 @app.command()
@@ -91,6 +99,10 @@ def run(
 ):
     """Scan, then render. The usual command."""
     cfg, feats, status = _load(config)
+    problem = pipeline.html_dir_problem(cfg)
+    if problem:
+        typer.secho(problem, fg="red")
+        raise typer.Exit(1)
     typer.echo(f"HomelabScribe {__version__} · {status}")
     if every and "schedule" not in feats:
         typer.secho("Scheduled runs need Pro. Running once.", fg="yellow")
@@ -99,8 +111,12 @@ def run(
         result = pipeline.scan(cfg, feats)
         _report_scan(result)
         _notify(cfg, feats, result)
-        written = pipeline.render(cfg, feats, result.snapshot)
-        typer.echo(f"Updated {len(written)} file(s) in {cfg.output_dir}.")
+        rendered = pipeline.render_pages(cfg, feats, result.snapshot)
+        typer.echo(f"Updated {len(rendered.written)} file(s) in {cfg.output_dir}.")
+        if rendered.html:
+            for page in rendered.html.skipped:
+                typer.secho(f"  skipped: {page}", fg="yellow")
+            typer.echo(f"Updated {len(rendered.html.changed)} HTML file(s) in {cfg.html_dir}.")
         if not every:
             if strict and result.errors:
                 raise typer.Exit(1)
@@ -109,14 +125,27 @@ def run(
 
 
 @app.command()
-def doctor(config: Path = ConfigOpt):
+def doctor(
+    config: Path = ConfigOpt,
+    bundle: bool = typer.Option(
+        False, "--bundle", help="Also write a redacted archive (a .zip of text files) for a bug report."
+    ),
+    out: Path = typer.Option(
+        None, "--out", "-o", help="With --bundle: the archive to write. An existing file is not overwritten."
+    ),
+):
     """Check config, connections and license. Safe to paste into a bug report."""
+    from homelabscribe import bundle as bundles
+
+    if out is not None and not bundle:
+        raise typer.BadParameter("it is only used together with --bundle.", param_hint="--out")
     cfg, feats, status = _load(config)
+    checks: list[bundles.Check] = []  # what each connection test found; the bundle is built from these
     typer.echo(f"HomelabScribe {__version__}")
     typer.echo(f"Config:   {config} ({'found' if config.exists() else 'not found, using defaults'})")
     typer.echo(f"License:  {status}")
     typer.echo(f"Output:   {cfg.output_dir}")
-    for h in cfg.docker_hosts:
+    for i, h in enumerate(cfg.docker_hosts):
         try:
             import docker
 
@@ -126,27 +155,50 @@ def doctor(config: Path = ConfigOpt):
                 f"(Docker {info.get('ServerVersion')}, {info.get('Containers')} containers)",
                 fg="green",
             )
+            checks.append(
+                bundles.Check(
+                    "docker", i, "ok", version=info.get("ServerVersion"), count=info.get("Containers")
+                )
+            )
         except Exception as e:
             typer.secho(f"Docker '{h.name}': FAILED ({type(e).__name__})", fg="red")
-    for n in cfg.npm:
+            checks.append(bundles.Check("docker", i, "failed", error=type(e).__name__))
+    for i, n in enumerate(cfg.npm):
         try:
             from homelabscribe.collectors.npm import NpmCollector
 
             count = len(NpmCollector(n).collect())
             typer.secho(f"Nginx Proxy Manager '{n.name}': OK ({count} proxy hosts)", fg="green")
+            checks.append(bundles.Check("npm", i, "ok", count=count))
         except Exception as e:
             typer.secho(f"Nginx Proxy Manager '{n.name}': FAILED ({type(e).__name__})", fg="red")
-    for p in cfg.proxmox:
+            checks.append(bundles.Check("npm", i, "failed", error=type(e).__name__))
+    for i, p in enumerate(cfg.proxmox):
         if "proxmox" not in feats:
             typer.secho(f"Proxmox '{p.name}': configured, needs Pro", fg="yellow")
+            checks.append(bundles.Check("proxmox", i, "skipped"))
             continue
         try:
             from homelabscribe.collectors.proxmox import ProxmoxCollector
 
             v = ProxmoxCollector(p).api.version.get()
             typer.secho(f"Proxmox '{p.name}': OK (PVE {v.get('version')})", fg="green")
+            checks.append(bundles.Check("proxmox", i, "ok", version=v.get("version")))
         except Exception as e:
             typer.secho(f"Proxmox '{p.name}': FAILED ({type(e).__name__})", fg="red")
+            checks.append(bundles.Check("proxmox", i, "failed", error=type(e).__name__))
+    if not bundle:
+        return
+    try:
+        written = bundles.create(cfg, config, checks, out)
+    except FileExistsError as e:
+        typer.secho(f"{e.filename} already exists and was not overwritten. No bundle written.", fg="red")
+        raise typer.Exit(1) from e
+    except OSError as e:
+        typer.secho(f"The bundle could not be written ({type(e).__name__}).", fg="red")
+        raise typer.Exit(1) from e
+    typer.echo(f"Wrote {written}")
+    typer.echo("Look inside before you share it: it is plain text, and you are the last check.")
 
 
 @app.command()
@@ -154,13 +206,21 @@ def demo(
     out: Path = typer.Option(
         Path("homelabscribe-demo"), "--out", "-o", help="Folder to write the demo docs to"
     ),
+    html: Path = typer.Option(
+        None, "--html", help="Also write a static HTML copy of the demo docs to this folder (its own folder)."
+    ),
 ):
     """Render docs for a made-up homelab, with every Pro feature on. No Docker needed."""
+    from homelabscribe import htmlsite
     from homelabscribe.demo import demo_snapshots
     from homelabscribe.diff import compare
     from homelabscribe.enrich import enrich, load_catalog
     from homelabscribe.renderer import Renderer
 
+    problem = htmlsite.folder_problem(html, {"the demo folder": out}) if html is not None else None
+    if problem:
+        typer.secho(problem, fg="red")
+        raise typer.Exit(1)
     old, new = demo_snapshots()
     catalog = load_catalog()
     enrich(old.services, catalog)
@@ -174,8 +234,14 @@ def demo(
         "Internet provider support — 555-0199",
     ]
     cfg.breakglass.critical = ["pihole", "plex", "vaultwarden", "homeassistant"]
-    written = Renderer(out, licensing.PRO_FEATURES).render(new, log, cfg.breakglass)
+    renderer = Renderer(out, licensing.PRO_FEATURES)
+    written = renderer.render(new, log, cfg.breakglass)
     typer.echo(f"Wrote {len(written)} file(s) to {out}/. Open {out}/index.md to start.")
+    if html is not None:
+        exported = htmlsite.export(out, html, renderer.generated)
+        for page in exported.skipped:
+            typer.secho(f"  skipped: {page}", fg="yellow")
+        typer.echo(f"Wrote {len(exported.changed)} HTML file(s) to {html}/. Open {html}/index.html to start.")
 
 
 @app.command("license")

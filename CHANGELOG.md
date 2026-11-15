@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 - Proxmox nodes each show their own address (from the cluster status) instead of the address of the node the API was reached through. Unreadable-source messages are one short line.
 
 ### Added
+- `homelabscribe doctor --bundle` writes a redacted archive to attach to a bug report (`homelabscribe-bundle-<UTC time>.zip` in the current folder, or `-o FILE`): the result of each check, versions, the config with its values masked and counts from the newest snapshot. Names become numbered placeholders, and no address, token, path or other text from your lab is copied. Read it before you share it ([what it holds](docs/security.md#the-bug-report-bundle)).
 - The README and website screenshots are re-rendered from the current release's demo (they said 0.1.0).
 - The Pro license terms are stated on the website and in the license email: valid for life, includes future Pro features, no refunds.
 - A Pro box on the website (lifetime license, $2.99) with a buy button that stays hidden until a sales switch is flipped, and a Notifications row in the Free vs Pro table.
@@ -23,6 +24,7 @@ All notable changes to this project are documented here. The format follows
 - `.gitlab-ci.yml` for the copy of the repository on the maintainer's self-hosted GitLab: a scheduled job mirrors `main` and the tags from GitHub (fast-forward only), and the lint, tests, secret scan and workflow lint re-run on every commit it receives. GitHub stays the home.
 - An access table in GOVERNANCE.md listing who and what can reach each sensitive resource.
 - The image is also on Docker Hub (`honeybeartech/homelabscribe`). A workflow that mirrors each release's container image from GHCR to Docker Hub (same digest, so the release attestation applies to both).
+- A static HTML copy of the generated pages, for readers without a Markdown viewer (Free). Set `html_dir` in the config and `render` and `run` write it after the Markdown; `homelabscribe demo --html DIR` shows it for the sample lab. The pages are plain files with inline styles and a dark mode, no JavaScript and no outside requests, and HTML in a label or a note is shown as text. `html_dir` has to be a folder of its own, and only files the export wrote are ever replaced or removed there. `markdown-it-py` (MIT, already in the lockfiles as a dependency of `typer`'s `rich`) becomes a direct dependency.
 
 ## [0.2.1] - 2026-10-17
 

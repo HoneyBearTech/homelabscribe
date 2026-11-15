@@ -2,7 +2,9 @@
 
 ## Selection
 
-Direct runtime dependencies are listed in [`pyproject.toml`](../pyproject.toml): `docker`, `proxmoxer`, `requests`, `pydantic`, `typer`, `jinja2`, `pyyaml`, `cryptography`. Each is a widely used, actively maintained, FLOSS-licensed library that replaces code that is hard to get right (crypto, YAML, API clients). Adding a dependency requires a stated reason in the pull request, a license compatible with AGPL-3.0, and a check that it is maintained. Prefer the standard library when it is enough. Cryptography is never hand-rolled.
+Direct runtime dependencies are listed in [`pyproject.toml`](../pyproject.toml): `docker`, `proxmoxer`, `requests`, `pydantic`, `typer`, `jinja2`, `markdown-it-py`, `pyyaml`, `cryptography`. Each is a widely used, actively maintained, FLOSS-licensed library that replaces code that is hard to get right (crypto, YAML, Markdown, API clients). Adding a dependency requires a stated reason in the pull request, a license compatible with AGPL-3.0, and a check that it is maintained. Prefer the standard library when it is enough. Cryptography is never hand-rolled.
+
+`markdown-it-py` converts the generated Markdown pages to HTML for the static HTML copy (`html_dir`). A Markdown parser written by hand, fed with text from container labels and notes, is exactly the code this section says to take from a library. It is MIT-licensed and maintained, and it was already installed and hash-pinned in every lockfile before it became a direct dependency, because `rich` (which `typer` needs) depends on it. Raw HTML is turned off in it, and HomelabScribe's own rules decide which links and images are written.
 
 ## Obtaining
 
