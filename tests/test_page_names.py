@@ -680,6 +680,16 @@ def test_an_older_page_with_the_short_id_is_kept_only_when_one_service_has_that_
     assert _ids(tmp_path)["plex-h"] == "h/Plex/vm/101"  # neither is named by it: the fixed order
 
 
+def test_two_colliding_services_with_a_lone_surrogate_render(tmp_path):
+    bad = _svc("a", "h", "Plex Media").model_copy(update={"description": "bad\ud800text"})
+    snap = _snap(["h"], [bad, _svc("b", "h", "Plex-Media")])
+    renderer = Renderer(tmp_path)
+    renderer.render(snap)
+    assert set(_ids(tmp_path)) == {"plex-media", f"plex-media-{_code('h/Plex-Media')}"}
+    assert "bad\ufffdtext" in (tmp_path / "services" / "plex-media.md").read_text()
+    assert renderer.skipped == []
+
+
 def test_a_new_code_never_takes_a_page_written_for_another_service(tmp_path):
     # Both titles give plex-media, and the SHA-256 of "h/<title>" starts with 5b50911b for both.
     b_title, c_title = "Plex*!$$!Media", "Plex|~($!Media"

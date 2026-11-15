@@ -136,6 +136,13 @@ def page_key(s: Service) -> str:
     return f"{s.id}/{s.kind}" + ("" if s.vmid is None else f"/{s.vmid}")
 
 
+def tie_break(s: Service) -> tuple:
+    """Everything that tells two services apart, for an order that does not depend on the order of the scan:
+    title, host, names, kind and VM or LXC number, and last every other field (as text, which never fails)."""
+    vmid = -1 if s.vmid is None else s.vmid
+    return s.title, s.host, s.name, s.compose_service or "", s.kind, vmid, repr(s.model_dump())
+
+
 def tag_text(category: str) -> str:
     """A category as a tag: lower case, letters and digits of any language (with their combining marks)
     and `_`, `-` and `/` kept, every run of other characters one hyphen, hyphens and slashes at the
@@ -397,12 +404,9 @@ class Renderer:
             return not same_title_and_host(fm, s)
 
         def fixed_order(s: Service) -> tuple:
-            # A service whose own title is unique first (its name is that title), then title, host, names,
-            # kind and VM or LXC number; last everything else known about it, so that only services that
-            # are the same in every way could come in the order of the scan (and their pages are the same).
-            vmid = -1 if s.vmid is None else s.vmid
-            head = (titles[s.title.lower()] != 1, s.title, s.host, s.name, s.compose_service or "", s.kind)
-            return (*head, vmid, s.model_dump_json())
+            # A service whose own title is unique first (its name is that title), then `tie_break`: only
+            # services the same in every way could come in the order of the scan (and so are their pages).
+            return titles[s.title.lower()] != 1, *tie_break(s)
 
         service_names, service_extra, grouped = self._names(
             "services",
