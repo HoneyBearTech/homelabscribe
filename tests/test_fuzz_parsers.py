@@ -11,6 +11,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from homelabscribe import licensing, notes
+from homelabscribe.bundle import CONFIG_MODELS, redact, unknown_keys
 from homelabscribe.collectors.docker import parse_container, parse_depends_on, parse_ports
 from homelabscribe.collectors.proxmox import parse_guest
 from homelabscribe.redact import clean_labels, env_names
@@ -38,6 +39,33 @@ def test_clean_labels_drops_htpasswd_hashes(labels):
     labels = {**labels, "traefik.http.middlewares.auth.basicauth.users": "admin:$apr1$abc$def"}
     cleaned = clean_labels(labels)
     assert all("$apr1$" not in v and "$2y$" not in v and "$2a$" not in v for v in cleaned.values())
+
+
+BUNDLE_MARKER = "LEAK-SENTINEL-"
+marked_text = st.builds(
+    lambda scheme, rest: f"{scheme}{BUNDLE_MARKER}{rest}", st.sampled_from(["", "tcp://", "https://"]), text
+)
+marked_value = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | marked_text,
+    lambda c: st.lists(c, max_size=4) | st.dictionaries(marked_text, c, max_size=4),
+    max_leaves=12,
+)
+config_keys = st.sampled_from(sorted({name for model in CONFIG_MODELS for name in model.model_fields}))
+
+
+@PROFILE
+@given(marked_value, st.lists(st.tuples(config_keys, st.booleans()), max_size=3))
+def test_bundle_redaction_never_returns_a_marker(value, path):
+    """No text of the config survives the redaction of a bug-report bundle, as a key or as a value.
+
+    The value is tried as it is and placed under real config keys, where a rule might keep something.
+    """
+    placed = value
+    for key, in_list in reversed(path):
+        placed = {key: [placed] if in_list else placed}
+    for data in (value, placed):
+        assert BUNDLE_MARKER not in repr(redact(data))
+        assert unknown_keys(data) >= 0
 
 
 @PROFILE
