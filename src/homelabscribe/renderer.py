@@ -176,7 +176,11 @@ def _still(path: Path, read: os.stat_result) -> bool:
 
 
 def _remove_own(path: Path, made: os.stat_result) -> None:
-    """Remove `path` if it still is the file that was created there (same device and inode), else nothing."""
+    """Remove `path` if it still holds the file that was created there (same device and inode), else nothing.
+
+    The name is checked just before it is removed: a file that takes the name in the instant between that
+    check and the removal is not protected.
+    """
     try:
         now = os.lstat(path)
     except FileNotFoundError:
@@ -195,7 +199,8 @@ def _archive(page: Path, folder: Path) -> Path | None:
     removed only once its copy is complete and on disk, and only if it is still the file that was read,
     unchanged. If it was saved again in the meantime, the copy is removed and None is returned: the page
     stays for the next run. If anything fails, the error is raised, the page stays where it was and the
-    copy is removed. A copy is only ever removed while its name still holds the file this call created.
+    copy is removed. Just before a copy is removed, its name is checked to still hold the file this call
+    created; a file that takes the name in the instant between that check and the removal is not protected.
     A page that is a link is copied as the text it points to, and then only the link is removed.
     """
     with page.open("rb") as source:
