@@ -563,3 +563,34 @@ def test_only_pages_of_look_alikes_have_an_id(tmp_path):
     assert text.startswith("---\ntitle: Plex Media\nhost: h\nid: h/a\ncategory: Other\n")
     Renderer(tmp_path / "a").render(_snap(["h"], [_svc("a", "h", "Plex Media")]))  # alone again: no id
     assert _ids(tmp_path / "a") == {"plex-media": None}
+
+
+@pytest.mark.parametrize("folder", ["services", "hosts"])
+def test_a_page_at_the_plain_name_that_is_not_utf8_is_skipped_and_the_command_exits_0(tmp_path, folder):
+    config = tmp_path / "homelabscribe.yaml"
+    config.write_text(
+        f"output_dir: {tmp_path / 'docs'}\n"
+        f"state_dir: {tmp_path / 'state'}\n"
+        f"html_dir: {tmp_path / 'html'}\n"
+        "docker_hosts: []\n"
+        "manual_services:\n"
+        "  - {name: a, host: NAS 1, title: Plex Media}\n"
+        "  - {name: b, host: nas-1, title: Plex-Media}\n"
+    )
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    name = "plex-media" if folder == "services" else "nas-1"
+    page = tmp_path / "docs" / folder / f"{name}.md"
+    page.write_bytes(page.read_text().encode("utf-16"))
+    before = page.read_bytes()
+    for args, status in (
+        (["render", "-c", str(config)], 0),
+        (["run", "-c", str(config)], 0),
+        (["run", "-c", str(config), "--strict"], 1),
+    ):
+        result = runner.invoke(app, args)
+        assert result.exit_code == status, (args, result.output)
+        assert result.output.count(f"skipped: {folder}/{name}.md (not UTF-8, left as it is)") == 1
+        assert "Traceback" not in result.output and "note: " in result.output
+        assert page.read_bytes() == before
+    coded = {"services": f"plex-media-{_code('nas-1/Plex-Media')}", "hosts": f"nas-1-{_code('nas-1')}"}
+    assert (tmp_path / "docs" / folder / f"{coded[folder]}.md").is_file()
