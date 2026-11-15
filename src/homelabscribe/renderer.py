@@ -158,16 +158,19 @@ def _archive(page: Path, folder: Path) -> Path:
     The first name tried is the page's own (`plex.md`), then `plex-2.md`, `plex-3.md` and so on. A name is
     taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
     each name is taken by creating a new file in one step, which fails if the name exists. The copy holds
-    the page's bytes. The page is removed only once its copy is complete; if anything fails, the error is
-    raised, the page stays where it was and the file this call created is removed. A page that is a link
-    is copied as the text it points to, and then only the link is removed.
+    the page's bytes and is created with the page's permissions (the umask may narrow them). The page is
+    removed only once its copy is complete; if anything fails, the error is raised, the page stays where
+    it was and the file this call created is removed. A page that is a link is copied as the text it
+    points to, and then only the link is removed.
     """
-    data = page.read_bytes()
+    with page.open("rb") as source:
+        read = os.fstat(source.fileno())
+        data = source.read()
     base = page.name.removesuffix(".md")
     for n in itertools.count(1):
         dest = folder / (page.name if n == 1 else f"{base}-{n}.md")
         try:
-            fd = os.open(dest, _NEW_FILE, 0o666)
+            fd = os.open(dest, _NEW_FILE, read.st_mode & 0o777)  # never wider than the page
         except FileExistsError:
             continue
         break

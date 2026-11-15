@@ -1,5 +1,6 @@
 import os
 import re
+import stat
 
 import pytest
 import yaml
@@ -225,6 +226,24 @@ def test_a_read_only_folder_keeps_the_page_and_leaves_no_file(tmp_path, read_onl
         (tmp_path / read_only).chmod(0o755)
     assert (tmp_path / "services" / "plex.md").read_bytes() == data
     assert not list((tmp_path / "archive" / "services").iterdir())
+
+
+def test_the_archived_copy_is_never_more_readable_than_the_page(tmp_path):
+    snap = _snap()
+    Renderer(tmp_path).render(snap)
+    for name, text in (("plex", "Private notes."), ("sonarr", "Shared notes.")):
+        _with_notes(tmp_path / "services" / f"{name}.md", text)
+    (tmp_path / "services" / "plex.md").chmod(0o600)
+    (tmp_path / "services" / "sonarr.md").chmod(0o644)
+    snap.services = [s for s in snap.services if s.name not in ("plex", "sonarr")]
+    old = os.umask(0o022)
+    try:
+        Renderer(tmp_path).render(snap)
+    finally:
+        os.umask(old)
+    archive = tmp_path / "archive" / "services"
+    assert stat.S_IMODE((archive / "plex.md").stat().st_mode) == 0o600
+    assert stat.S_IMODE((archive / "sonarr.md").stat().st_mode) == 0o644
 
 
 _ARCHIVED = ["plex.md", "plex-2.md", "plex-3.md", "nova.md", "nova-2.md"]
