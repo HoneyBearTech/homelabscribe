@@ -1030,3 +1030,43 @@ def test_h5_the_exported_page_of_a_service_titled_with_a_colon_has_no_quote_mark
     page = (html / "services" / "media-tv.html").read_text()
     assert "<title>Media: TV</title>" in page
     assert "<h1>Media: TV</h1>" in page
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['"\\uD800"', '"a\\0b"', '"\\x00"', '"' + "a" * 5000 + '"', "'" + "a" * 4096 + "'"],
+)
+def test_h5_a_quoted_value_that_cannot_be_a_title_is_used_as_written(value):
+    got, _ = htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n# H\n")
+    assert got == value
+
+
+def test_h5_a_quoted_value_up_to_the_limit_is_still_decoded():
+    value = '"' + "a" * (htmlsite._MAX_QUOTED_TITLE - 2) + '"'
+    assert htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n")[0] == value[1:-1]
+
+
+def test_h5_an_over_long_quoted_value_is_not_parsed(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("parsed")
+
+    monkeypatch.setattr(htmlsite.yaml, "compose", boom)
+    monkeypatch.setattr(htmlsite.yaml, "safe_load", boom)
+    value = '"' + "a" * htmlsite._MAX_QUOTED_TITLE + '"'
+    assert htmlsite.split_front_matter(f"---\ntitle: {value}\n---\n")[0] == value
+
+
+def test_h5_a_page_titled_with_a_lone_surrogate_escape_does_not_stop_the_export(tmp_path):
+    out, html = tmp_path / "docs", tmp_path / "html"
+    renderer = _render(out)
+    old = out / "archive" / "services" / "old.md"
+    old.parent.mkdir(parents=True)
+    old.write_text(f'---\ntitle: "\\uD800"\n---\n# Old\n\n{notes.START}\nmine\n{notes.END}\n')
+    result = htmlsite.export(out, html, renderer.generated)
+    assert not result.skipped
+    exported = _files(html)
+    assert "archive/services/old.html" in exported
+    assert {p.relative_to(out).with_suffix(".html").as_posix() for p in renderer.generated} <= exported
+    assert "<title>\\uD800</title>" in (html / "archive" / "services" / "old.html").read_text().replace(
+        '"', ""
+    ).replace("&#34;", "")

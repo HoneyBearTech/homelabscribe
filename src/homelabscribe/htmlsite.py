@@ -179,18 +179,34 @@ _HEADING = re.compile(r"#{1,6}[ \t]")
 _TITLE = re.compile(r"title:[ \t]*(.*)")
 
 
+# A title is a few words; a longer quoted value is used as written and not parsed.
+_MAX_QUOTED_TITLE = 4096
+
+
 def _quoted_text(value: str) -> str | None:
-    """The text of a value that is one complete quoted YAML scalar, else None."""
-    if len(value) < 2 or value[0] not in "\"'" or value[-1] != value[0]:
+    """The text of a value that is one complete quoted YAML scalar, else None.
+
+    None as well when the value is longer than `_MAX_QUOTED_TITLE`, or when the text cannot be written
+    to a UTF-8 file (a lone surrogate) or holds a NUL character: the value is then used as written.
+    """
+    if not 2 <= len(value) <= _MAX_QUOTED_TITLE or value[0] not in "\"'" or value[-1] != value[0]:
         return None
     try:
         node = yaml.compose(value, Loader=yaml.SafeLoader)
-        if node is None or node.style != value[0] or node.end_mark.index != len(value):
+        if (
+            not isinstance(node, yaml.ScalarNode)
+            or node.style != value[0]
+            or node.end_mark.index != len(value)
+            or node.tag != "tag:yaml.org,2002:str"
+        ):
             return None
-        text = yaml.safe_load(value)
+        text = node.value
+        if "\0" in text:
+            return None
+        text.encode("utf-8")
     except Exception:  # noqa: BLE001 - bad front matter must never stop the export
         return None
-    return text if isinstance(text, str) else None
+    return text
 
 
 def split_front_matter(text: str) -> tuple[str | None, str]:
