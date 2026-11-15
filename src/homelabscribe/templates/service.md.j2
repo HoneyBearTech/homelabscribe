@@ -1,12 +1,12 @@
 ---
-title: {{ s.title }}
-host: {{ s.host }}
-category: {{ s.category }}
-status: {{ s.status }}
+title: {{ s.title|yaml_text }}
+host: {{ s.host|yaml_text }}
+category: {{ s.category|yaml_text }}
+status: {{ s.status|yaml_text }}
 {% if s.image %}
-image: {{ s.image }}
+image: {{ s.image|yaml_text }}
 {% endif %}
-tags: [homelab, {{ s.category|lower|replace(" ", "-")|replace("(", "")|replace(")", "") }}]
+tags: [homelab, {{ s.category|slug|yaml_text }}]
 ---
 # {{ s.title }}
 
