@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows
 - Dependency updates are proposed by Renovate (`renovate.json`) instead of Dependabot. It regenerates the hash-pinned lockfiles in `requirements/` with the uv command in each file's header, and also covers the images in `.gitlab-ci.yml`, which used to be bumped by hand.
 
 ### Fixed
+- A license key that is mistyped or cut off no longer stops every command with an error: it is reported as `Free edition (Malformed license key.)`.
+- The Pro changelog page has a notes block, like every other page. Notes added to it by hand no longer make the next render fail.
+- A service title or host name too long for a file name no longer stops the render: a page name is at most 200 characters, and a longer one is cut and ends with a short hash of the whole name.
+- Text that cannot be saved to a file (a lone surrogate, for example in a container label) no longer stops a scan or a render: it is saved and written as U+FFFD, the replacement character.
 - Archiving a page never overwrites anything in `archive/`. A page archived when its name is already taken there (by an earlier archived page of the same name, a folder or a link) is saved as `name-2.md`, `name-3.md` and so on; before, the older archived page and its notes were replaced, a folder of that name had the page moved inside it, and a link of that name had the page moved to where it pointed.
 - The front matter of generated pages is always valid YAML and always text: a title, host, category, status or image such as `Media: TV`, `123`, `true` or one with a line break is now quoted, and the category tag keeps letters and digits of any language, `_`, `-` and `/`. The HTML copy shows the text of a quoted title without the quotes.
 - Proxmox nodes each show their own address (from the cluster status) instead of the address of the node the API was reached through. Unreadable-source messages are one short line.
