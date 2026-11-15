@@ -161,8 +161,11 @@ page_pieces = st.sampled_from(
 
 
 @PROFILE
-@given(st.lists(page_pieces | st.text(max_size=20), max_size=12).map("".join))
-def test_html_page_carries_no_markup_from_the_page_text(source):
+@given(
+    st.lists(page_pieces | st.text(max_size=20), max_size=12).map("".join),
+    st.sampled_from(["index.md", "services/page.md", "archive/services/page.md"]),  # three depths
+)
+def test_html_page_carries_no_markup_from_the_page_text(source, rel):
     """Whatever a page holds, its HTML copy has no element or address that could run or fetch anything."""
     from html.parser import HTMLParser
     from urllib.parse import urlsplit
@@ -181,15 +184,17 @@ def test_html_page_carries_no_markup_from_the_page_text(source):
         def handle_starttag(self, tag, attrs):
             found.append((tag, dict(attrs)))
 
-    Elements().feed(page_html(source, "services/page.md", frozenset({"services/plex.md", "index.md"})))
+    Elements().feed(page_html(source, rel, frozenset({"services/plex.md", "index.md"})))
     tags = [tag for tag, _ in found]
     # The template's own head, then nothing but what the converter makes from Markdown.
     assert tags[:9] == ["html", "head", "meta", "meta", "meta", "meta", "title", "style", "body"]
     for tag, attrs in found[9:]:
         assert tag not in {"script", "style", "iframe", "object", "embed", "form", "base", "meta", "link"}
         assert not any(name.startswith("on") for name in attrs)
+        assert "style" not in attrs  # no element made from the page text carries a style attribute
         if "href" in attrs:
             scheme, host = scheme_and_host(attrs["href"] or "")
             assert scheme in ("http", "https", "mailto") or (scheme == "" and host == "")
         if "src" in attrs:
             assert scheme_and_host(attrs["src"] or "") == ("", "")
+            assert not (attrs["src"] or "").replace("\\", "/").startswith("/")
