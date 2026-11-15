@@ -37,8 +37,48 @@ def _report_scan(result: pipeline.ScanResult) -> None:
         typer.secho(f"  skipped: {msg}", fg="yellow")
     for msg in result.errors:
         typer.secho(f"  error: {msg}", fg="red")
+    _report_file_skips(result.file_skips)
     if result.diff and not result.diff.empty:
         typer.echo(f"{len(result.diff.changes)} change(s) since the last scan.")
+
+
+def _report_file_skips(lines: list[str]) -> None:
+    for line in lines:
+        typer.secho(f"  skipped: {line}", fg="yellow")
+
+
+def _report_rendered(rendered: pipeline.Rendered, cfg: Config) -> None:
+    """The lines after a render: files left alone, how many were written, and the HTML copy."""
+    _report_file_skips(rendered.skipped)
+    typer.echo(f"Updated {len(rendered.written)} file(s) in {cfg.output_dir}.")
+    if rendered.html:
+        shown = {line.split(" (", 1)[0] for line in rendered.skipped}
+        for page in rendered.html.skipped:
+            if page.split(" (", 1)[0] not in shown:  # a page already reported above is not reported twice
+                typer.secho(f"  skipped: {page}", fg="yellow")
+        typer.echo(f"Updated {len(rendered.html.changed)} HTML file(s) in {cfg.html_dir}.")
+
+
+def _scan(cfg: Config, feats: frozenset[str]) -> pipeline.ScanResult:
+    try:
+        return pipeline.scan(cfg, feats)
+    except pipeline.StateFolderError as e:
+        typer.secho(f"error: {e}. Nothing was scanned or saved.", fg="red")
+        raise typer.Exit(1) from e
+
+
+def _render(cfg: Config, feats: frozenset[str], snapshot=None) -> pipeline.Rendered:
+    try:
+        return pipeline.render_pages(cfg, feats, snapshot)
+    except RuntimeError as e:  # no snapshot to render
+        typer.secho(f"error: {e}", fg="red")
+        raise typer.Exit(1) from e
+    except OSError as e:  # an old page that holds notes could not be archived: it stays where it is
+        typer.secho(
+            f"error: a page with notes could not be archived ({type(e).__name__}); it was left as it is.",
+            fg="red",
+        )
+        raise typer.Exit(1) from e
 
 
 def _notify(cfg: Config, feats: frozenset[str], result: pipeline.ScanResult) -> None:
@@ -61,7 +101,7 @@ def _interval(text: str) -> int:
 StrictOpt = typer.Option(
     False,
     "--strict",
-    help="Exit with status 1 if any host or proxy could not be read (docs are still written).",
+    help="Exit with status 1 if a host or proxy could not be read or a file was skipped (docs are written).",
 )
 
 
@@ -69,9 +109,9 @@ StrictOpt = typer.Option(
 def scan(config: Path = ConfigOpt, strict: bool = StrictOpt):
     """Collect a new snapshot of your lab (read-only)."""
     cfg, feats, _ = _load(config)
-    result = pipeline.scan(cfg, feats)
+    result = _scan(cfg, feats)
     _report_scan(result)
-    if strict and result.errors:
+    if strict and (result.errors or result.file_skips):
         raise typer.Exit(1)
 
 
@@ -83,12 +123,7 @@ def render(config: Path = ConfigOpt):
     if problem:
         typer.secho(problem, fg="red")
         raise typer.Exit(1)
-    rendered = pipeline.render_pages(cfg, feats)
-    typer.echo(f"Updated {len(rendered.written)} file(s) in {cfg.output_dir}.")
-    if rendered.html:
-        for page in rendered.html.skipped:
-            typer.secho(f"  skipped: {page}", fg="yellow")
-        typer.echo(f"Updated {len(rendered.html.changed)} HTML file(s) in {cfg.html_dir}.")
+    _report_rendered(_render(cfg, feats), cfg)
 
 
 @app.command()
@@ -108,17 +143,13 @@ def run(
         typer.secho("Scheduled runs need Pro. Running once.", fg="yellow")
         every = None
     while True:
-        result = pipeline.scan(cfg, feats)
+        result = _scan(cfg, feats)
         _report_scan(result)
         _notify(cfg, feats, result)
-        rendered = pipeline.render_pages(cfg, feats, result.snapshot)
-        typer.echo(f"Updated {len(rendered.written)} file(s) in {cfg.output_dir}.")
-        if rendered.html:
-            for page in rendered.html.skipped:
-                typer.secho(f"  skipped: {page}", fg="yellow")
-            typer.echo(f"Updated {len(rendered.html.changed)} HTML file(s) in {cfg.html_dir}.")
+        rendered = _render(cfg, feats, result.snapshot)
+        _report_rendered(rendered, cfg)
         if not every:
-            if strict and result.errors:
+            if strict and (result.errors or result.file_skips or rendered.skipped):
                 raise typer.Exit(1)
             break
         time.sleep(_interval(every))
