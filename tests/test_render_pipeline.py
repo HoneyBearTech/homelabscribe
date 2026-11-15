@@ -642,3 +642,74 @@ def test_a_tag_reads_back_as_the_same_text_inside_the_tags_list(category):
     tag = tag_text(category)
     assert tag and tag == tag.strip("-/") and tag == tag.lower()
     assert yaml.safe_load(f"tags: [homelab, {yaml_text(tag)}]") == {"tags": ["homelab", tag]}
+
+
+# ---- the Pro changelog page keeps notes like every other page -----------------------------------
+
+
+def test_notes_on_the_changelog_page_survive_a_new_entry(tmp_path):
+    old, new = demo_snapshots()
+    cfg = Config(output_dir=tmp_path / "docs", state_dir=tmp_path / "state")
+    pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("old", FakeCollector(old))])
+    pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("new", FakeCollector(new))])
+    pipeline.render(cfg, licensing.PRO_FEATURES)
+    page = tmp_path / "docs" / "CHANGELOG.md"
+    _with_notes(page, "The big move to nova was in March.")
+
+    newer = new.model_copy(deep=True)
+    newer.services = [s for s in newer.services if s.name != "plex"]
+    pipeline.scan(cfg, licensing.PRO_FEATURES, collectors=[("newer", FakeCollector(newer))])
+    pipeline.render(cfg, licensing.PRO_FEATURES)
+    text = page.read_text()
+    assert "The big move to nova was in March." in text
+    assert "- **Removed** Plex" in text
+    assert text.endswith(f"## Notes\n\n{notes.START}\nThe big move to nova was in March.\n{notes.END}\n")
+
+
+def test_a_changelog_page_from_before_the_notes_block_is_rewritten_with_it(tmp_path):
+    page = tmp_path / "CHANGELOG.md"
+    page.write_text("# What changed\n\nNo changes recorded yet. Changes appear after the second scan.\n")
+    Renderer(tmp_path, licensing.PRO_FEATURES).render(_snap(), [], None)
+    assert page.read_text().endswith(f"## Notes\n\n{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}\n")
+
+
+@pytest.mark.parametrize(
+    "rendered",
+    [
+        "# Page\n",
+        "# Page",
+        "",
+        f"# Page\n{notes.START}\nrest\n",
+        f"# Page\n{notes.END}\nrest\n",
+        f"# Page\n{notes.END}\n{notes.START}\n",
+    ],
+)
+def test_merge_keeps_the_notes_when_the_page_has_no_notes_block(rendered):
+    previous = f"# Old\n\n## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n"
+    out = notes.merge(rendered, previous)
+    assert out.startswith(rendered)
+    assert notes.extract(out[len(rendered) :]) == "Ask Jess."
+    assert out.endswith(f"## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n")
+    assert "\n\n\n" not in out and (not rendered or "\n\n## Notes" in out)
+
+
+@pytest.mark.parametrize(
+    "previous",
+    [
+        None,
+        "# Old\n",
+        f"{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}\n",
+        f"{notes.START}\n\n{notes.END}\n",
+    ],
+)
+def test_merge_without_notes_to_keep_leaves_a_page_without_a_notes_block_as_it_is(previous):
+    assert notes.merge("# Page\n", previous) == "# Page\n"
+
+
+def test_merge_of_a_page_with_a_notes_block_is_unchanged():
+    rendered = f"head\n{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}\ntail\n"
+    previous = f"old\n{notes.START}\nmine\n{notes.END}\n"
+    assert notes.merge(rendered, previous) == f"head\n{notes.START}\nmine\n{notes.END}\ntail\n"
+    assert (
+        notes.merge(rendered, f"{notes.START}\n{notes.END}") == f"head\n{notes.START}\n\n{notes.END}\ntail\n"
+    )

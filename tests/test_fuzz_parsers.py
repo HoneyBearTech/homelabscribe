@@ -136,6 +136,20 @@ def test_notes_merge_keeps_markers_and_notes(body, mine):
     assert notes.extract(out) is not None
 
 
+notes_text = st.lists(
+    st.sampled_from([notes.START, notes.END, notes.PLACEHOLDER, "\n"]) | text, max_size=8
+).map("".join)
+
+
+@PROFILE
+@given(notes_text, notes_text)
+def test_notes_merge_never_fails_and_keeps_real_notes(rendered, previous):
+    out = notes.merge(rendered, previous)
+    kept = notes.extract(previous)
+    if kept is not None and kept.strip() not in ("", notes.PLACEHOLDER):
+        assert kept in out
+
+
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
