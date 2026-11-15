@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows
 - Dependency updates are proposed by Renovate (`renovate.json`) instead of Dependabot. It regenerates the hash-pinned lockfiles in `requirements/` with the uv command in each file's header, and also covers the images in `.gitlab-ci.yml`, which used to be bumped by hand.
 
 ### Fixed
+- A file that cannot be used no longer stops the run with a Python error. A page that cannot be read or is not UTF-8, a page name held by a link or a folder, a read-only page or folder, a cut-off or damaged snapshot or `changelog.json`, and a `notify-state.json` of the wrong shape are left as they are and printed as `skipped: <path> (<reason>)`; the other pages are still written, and the old-page clean-up never deletes or archives what it could not read. The exit status stays 0 without `--strict`; with `--strict`, `scan` and `run` exit 1 after the docs are written. A damaged `changelog.json` is moved to `changelog.json.damaged` and a new one is started. If the snapshot folder cannot be written, `scan` prints one `error:` line and exits 1.
+- Pages, snapshots, `changelog.json` and `notify-state.json` are written to a temporary file and swapped in, so a write that fails halfway no longer leaves a short page without its notes.
+- A link named like a generated page is no longer written through: it could create a file wherever it pointed, outside the output folder.
 - A license key that is mistyped or cut off no longer stops every command with an error: it is reported as `Free edition (Malformed license key.)`.
 - The Pro changelog page has a notes block, like every other page. Notes added to it by hand no longer make the next render fail.
 - A service title or host name too long for a file name no longer stops the render: a page name is at most 200 characters, and a longer one is cut and ends with a short hash of the whole name.
