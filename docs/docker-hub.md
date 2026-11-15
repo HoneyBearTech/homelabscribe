@@ -82,7 +82,7 @@ Images are built for `linux/amd64` and `linux/arm64`, run as a non-root user (ui
 | `/docs` | The generated Markdown. Put your Obsidian vault folder here |
 | `/data` | Working directory; state lives in `/data/.homelabscribe` |
 
-Optional: `HOMELABSCRIBE_LICENSE` for a Pro key. Commands: `run` (default), `scan`, `render`, `doctor`, `demo`, `version`; add `--strict` to exit non-zero when a host can't be read.
+Optional: `HOMELABSCRIBE_LICENSE` for a Pro key. Commands: `run` (default), `scan`, `render`, `doctor`, `demo`, `version`; add `--strict` to exit non-zero when a host can't be read or a file was skipped.
 
 ## Free and Pro
 

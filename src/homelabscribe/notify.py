@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from homelabscribe import fsutil
 from homelabscribe.config import NotifyConfig
 from homelabscribe.diff import Diff
 
@@ -58,15 +59,22 @@ def send(targets: list[NotifyConfig], title: str, body: str, post=_post) -> list
     return failed
 
 
+def _known_errors(state_path: Path) -> set[str]:
+    """The errors the last run reported. A file that cannot be read, or has another shape, counts as empty."""
+    try:
+        data = json.loads(fsutil.read_text(state_path))
+        errors = data.get("errors", []) if isinstance(data, dict) else []
+        return {e for e in errors if isinstance(e, str)} if isinstance(errors, list) else set()
+    except (OSError, ValueError):
+        return set()
+
+
 def notify_after_scan(
     targets: list[NotifyConfig], state_dir: Path, diff: Diff | None, errors: list[str], post=_post
 ) -> list[str]:
     """Notify when changes appear or the set of unreadable sources changes. Returns delivery failures."""
     state_path = state_dir / STATE_FILE
-    try:
-        known = set(json.loads(state_path.read_text()).get("errors", []))
-    except (OSError, ValueError):
-        known = set()
+    known = _known_errors(state_path)
     current = set(errors)
     failed: list[str] = []
     for t in targets:
@@ -75,5 +83,8 @@ def notify_after_scan(
         if msg:
             failed += send([t], *msg, post=post)
     state_dir.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({"errors": sorted(current)}))
+    try:
+        fsutil.atomic_write(state_path, json.dumps({"errors": sorted(current)}).encode("utf-8"))
+    except OSError:
+        failed.append("state file: could not be written")
     return failed

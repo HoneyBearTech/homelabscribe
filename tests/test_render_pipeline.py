@@ -210,8 +210,9 @@ def test_a_failed_archiving_keeps_the_page_and_leaves_no_partial_file(tmp_path, 
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(renderer_module, "_fill", fill_part_way)
-    with pytest.raises(OSError, match="No space left"):
-        Renderer(tmp_path).render(snap)
+    r = Renderer(tmp_path)
+    r.render(snap)  # reported as skipped, not raised
+    assert r.skipped == ["services/plex.md (could not be archived, left as it is)"]
     assert (tmp_path / "services" / "plex.md").read_bytes() == data
     assert not list((tmp_path / "archive" / "services").iterdir())
 
@@ -245,8 +246,9 @@ def test_a_failed_flush_to_disk_keeps_the_page_and_leaves_no_file(tmp_path, monk
         )  # a real failure, unlike a file system that cannot sync
 
     monkeypatch.setattr(os, "fsync", fsync)
-    with pytest.raises(OSError, match="Input/output error"):
-        Renderer(tmp_path).render(snap)
+    r = Renderer(tmp_path)
+    r.render(snap)
+    assert "services/plex.md (could not be archived, left as it is)" in r.skipped  # the page writes fail too
     assert (tmp_path / "services" / "plex.md").read_bytes() == data
     assert not list((tmp_path / "archive" / "services").iterdir())
 
@@ -296,8 +298,9 @@ def test_the_clean_up_never_removes_a_file_that_took_the_copys_place(tmp_path, m
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(renderer_module, "_fill", swap_then_fail)
-    with pytest.raises(OSError, match="No space left"):
-        Renderer(tmp_path).render(snap)
+    r = Renderer(tmp_path)
+    r.render(snap)
+    assert r.skipped == ["services/plex.md (could not be archived, left as it is)"]
     assert name.read_bytes() == b"someone else's file\n"
     assert (tmp_path / "services" / "plex.md").read_bytes() == data
 
@@ -309,8 +312,9 @@ def test_a_read_only_folder_keeps_the_page_and_leaves_no_file(tmp_path, read_onl
     (tmp_path / "archive" / "services").mkdir(parents=True)
     (tmp_path / read_only).chmod(0o555)
     try:
-        with pytest.raises(PermissionError):
-            Renderer(tmp_path).render(snap)
+        r = Renderer(tmp_path)
+        r.render(snap)
+        assert "services/plex.md (could not be archived, left as it is)" in r.skipped
     finally:
         (tmp_path / read_only).chmod(0o755)
     assert (tmp_path / "services" / "plex.md").read_bytes() == data

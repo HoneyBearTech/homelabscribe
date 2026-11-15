@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import errno
 import hashlib
 import itertools
 import os
@@ -15,10 +14,11 @@ from pathlib import Path
 
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 
-from homelabscribe import __version__, notes
+from homelabscribe import __version__, fsutil, notes
 from homelabscribe.config import BreakGlassConfig
 from homelabscribe.enrich import image_base
 from homelabscribe.models import Host, Service, Snapshot
+from homelabscribe.store import entry_ok as store_entry_ok
 
 WEB_PORTS = {
     80,
@@ -155,27 +155,12 @@ def _when(dt: datetime) -> str:
 
 
 # Create the file itself, never what a link in its place points at (and as bytes, where that is a choice).
-_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
-
-# What a file system that cannot sync a file at all answers: the copy is then as safe as it allows.
-_NO_SYNC = frozenset({errno.EINVAL, errno.ENOTSUP, errno.ENOSYS})
+_NEW_FILE = fsutil.NEW_FILE
 
 
 def _fill(fd: int, data: bytes) -> None:
     """Write all of `data` to the new file open at `fd`, flush it to disk where that is possible, close it."""
-    try:
-        f = os.fdopen(fd, "wb")
-    except BaseException:
-        os.close(fd)
-        raise
-    with f:
-        f.write(data)
-        f.flush()
-        try:
-            os.fsync(f.fileno())  # on disk before the page is removed, so a crash cannot leave a short copy
-        except OSError as e:
-            if e.errno not in _NO_SYNC:
-                raise
+    fsutil.fill(fd, data)
 
 
 def _version(st: os.stat_result) -> tuple[int, int, int, int]:
@@ -273,6 +258,7 @@ class Renderer:
         self.env.filters["config_vars"] = config_vars
         self.written: list[Path] = []
         self.generated: set[Path] = set()
+        self.skipped: list[str] = []  # `<page> (<reason>)` for each page left alone
 
     # ---- helpers exposed to templates -------------------------------------------------
 
@@ -328,33 +314,85 @@ class Renderer:
 
     # ---- writing ----------------------------------------------------------------------
 
+    def _skip(self, path: Path, reason: str) -> None:
+        self.skipped.append(f"{path.relative_to(self.out).as_posix()} ({reason})")
+
     def _write(self, rel: str, content: str) -> None:
         path = self.out / rel
         self.generated.add(path)
-        previous = path.read_text() if path.exists() else None
+        reason = self._write_problem(path)
+        if reason:
+            self._skip(path, reason)
+            return
+        try:
+            previous = self._read(path) if os.path.lexists(path) else None
+        except UnicodeDecodeError:
+            self._skip(path, "not UTF-8, left as it is")
+            return
+        except OSError:
+            self._skip(path, "could not be read, left as it is")
+            return
         merged = notes.merge(replace_surrogates(content), previous)
         if merged == previous:
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(merged)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fsutil.atomic_write(path, merged.encode("utf-8"))
+        except OSError:
+            self._skip(path, "could not be written, left as it is")
+            return
         self.written.append(path)
 
+    def _write_problem(self, path: Path) -> str | None:
+        """Why nothing may be written to `path`: the page itself is a link, a folder or not a plain file.
+
+        A folder that is a link to a folder is the user's own setup and is followed.
+        """
+        if path.is_symlink():
+            return "the page is a symbolic link, left alone"
+        if os.path.lexists(path) and not path.is_file():
+            return "not a regular file, left alone"
+        return None
+
+    @staticmethod
+    def _read(path: Path) -> str:
+        return fsutil.read_text(path)
+
     def _sweep(self, folder: str) -> None:
-        """Pages for services that no longer exist: archive if they hold notes, else delete."""
+        """Pages for services that no longer exist: archive if they hold notes, else delete.
+
+        A page that cannot be read or is not UTF-8 is never deleted or archived: it is left as it is.
+        """
         d = self.out / folder
-        if not d.exists():
+        if not d.is_dir():
             return
-        for f in d.glob("*.md"):
+        for f in sorted(d.glob("*.md")):
             if f in self.generated:
                 continue
-            kept = notes.extract(f.read_text())
+            try:
+                kept = notes.extract(self._read(f))
+            except UnicodeDecodeError:
+                self._skip(f, "not UTF-8, left as it is")
+                continue
+            except OSError:
+                self._skip(f, "could not be read, left as it is")
+                continue
             if kept and kept.strip() != notes.PLACEHOLDER:
                 dest = self.out / "archive" / folder
-                dest.mkdir(parents=True, exist_ok=True)
-                if _archive(f, dest) is None:  # saved while it was copied: left as it is, for the next run
+                try:
+                    dest.mkdir(parents=True, exist_ok=True)
+                    archived = _archive(f, dest)
+                except OSError:  # no room, no permission, no folder: the page and its notes stay
+                    self._skip(f, "could not be archived, left as it is")
+                    continue
+                if archived is None:  # saved while it was copied: left as it is, for the next run
                     continue
             else:
-                f.unlink()
+                try:
+                    f.unlink()
+                except OSError:
+                    self._skip(f, "could not be removed, left as it is")
+                    continue
             self.written.append(f)
 
     def render(
@@ -411,9 +449,13 @@ class Renderer:
             )
 
         if "changelog" in self.features:
+            usable = [e for e in changelog or [] if store_entry_ok(e)]
+            if len(usable) < len(changelog or []):
+                bad = len(changelog or []) - len(usable)
+                self.skipped.append(f"changelog.json ({bad} entry(ies) not usable, left in the file)")
             entries = [
                 {"when": _when(datetime.fromisoformat(e["at"])), "changes": e["changes"]}
-                for e in reversed(changelog or [])
+                for e in reversed(usable)
             ]
             self._write("CHANGELOG.md", self.env.get_template("changelog.md.j2").render(entries=entries))
 

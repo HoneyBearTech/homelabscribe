@@ -22,6 +22,11 @@ class ScanResult:
     diff: Diff | None
     skipped: list[str] = field(default_factory=list)  # sources skipped (license or error)
     errors: list[str] = field(default_factory=list)
+    file_skips: list[str] = field(default_factory=list)  # state files left alone, as `<file> (<reason>)`
+
+
+class StateFolderError(Exception):
+    """The snapshot folder cannot be written, so the scan has nowhere to keep its result."""
 
 
 def _reason(e: Exception) -> str:
@@ -101,6 +106,10 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
     snap = Snapshot()
     skipped: list[str] = []
     errors: list[str] = []
+    file_skips: list[str] = []
+
+    if not store.writable(cfg.state_dir):  # before the lab is queried for nothing
+        raise StateFolderError("the snapshot folder in the state folder cannot be written")
 
     if collectors is None:
         collectors = []
@@ -114,7 +123,7 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
         elif cfg.proxmox:
             collectors += [(f"Proxmox '{p.name}'", ProxmoxCollector(p)) for p in cfg.proxmox]
 
-    last = store.recent(cfg.state_dir, 1)
+    last = store.recent(cfg.state_dir, 1, file_skips)
     # Cleaned as the new one is: older text cannot bring a marker in, and the cleaning is not a change.
     previous = snapshot_without_surrogates_or_markers(last[0]) if last else None
 
@@ -154,22 +163,35 @@ def scan(cfg: Config, features: frozenset[str], collectors=None) -> ScanResult:
     link_routes(snap.routes, snap.hosts, snap.services)
     snap = snapshot_without_surrogates_or_markers(snap)
 
-    store.save(snap, cfg.state_dir)
+    try:
+        store.save(snap, cfg.state_dir)
+    except OSError as e:
+        raise StateFolderError("the snapshot could not be saved in the state folder") from e
 
     diff = None
     if previous:
         diff = compare(previous, snap)
         if not diff.empty:
-            log = store.load_changelog(cfg.state_dir)
-            log.append({"at": snap.taken_at.isoformat(), "changes": [c.model_dump() for c in diff.changes]})
-            store.save_changelog(log, cfg.state_dir)
-    return ScanResult(snapshot=snap, diff=diff, skipped=skipped, errors=errors)
+            try:
+                log = store.load_changelog(cfg.state_dir, file_skips)
+            except store.ChangelogBlocked:  # the damaged file stays as it is; nothing is written over it
+                log = None
+            if log is not None:
+                log.append(
+                    {"at": snap.taken_at.isoformat(), "changes": [c.model_dump() for c in diff.changes]}
+                )
+                try:
+                    store.save_changelog(log, cfg.state_dir)
+                except OSError:
+                    file_skips.append("changelog.json (could not be written, left as it is)")
+    return ScanResult(snapshot=snap, diff=diff, skipped=skipped, errors=errors, file_skips=file_skips)
 
 
 @dataclass
 class Rendered:
     written: list[Path]  # Markdown files that changed
     html: htmlsite.Export | None = None  # the static HTML copy, when `html_dir` is set
+    skipped: list[str] = field(default_factory=list)  # files left alone, as `<file> (<reason>)`
 
 
 def html_dir_problem(cfg: Config) -> str | None:
@@ -188,18 +210,24 @@ def render_pages(cfg: Config, features: frozenset[str], snapshot: Snapshot | Non
     problem = html_dir_problem(cfg)
     if problem:  # before anything is written
         raise ValueError(problem)
+    skipped: list[str] = []
     if snapshot is None:
-        latest = store.recent(cfg.state_dir, 1)
+        latest = store.recent(cfg.state_dir, 1, skipped)
         if not latest:
-            raise RuntimeError("No snapshot yet. Run `homelabscribe scan` first.")
+            why = " Skipped: " + "; ".join(skipped) + "." if skipped else ""
+            raise RuntimeError("No snapshot yet. Run `homelabscribe scan` first." + why)
         snapshot = snapshot_without_surrogates_or_markers(latest[0])  # it may have been saved uncleaned
     r = Renderer(cfg.output_dir, features)
     # The names of the critical services are compared with the cleaned names in the snapshot.
     critical = [without_surrogates_or_markers(n) for n in cfg.breakglass.critical]
     breakglass = cfg.breakglass.model_copy(update={"critical": critical})
-    written = r.render(snapshot, store.load_changelog(cfg.state_dir), breakglass)
+    try:
+        changelog = store.load_changelog(cfg.state_dir, skipped)
+    except store.ChangelogBlocked:
+        changelog = []
+    written = r.render(snapshot, changelog, breakglass)
     html = htmlsite.export(cfg.output_dir, cfg.html_dir, r.generated) if cfg.html_dir is not None else None
-    return Rendered(written=written, html=html)
+    return Rendered(written=written, html=html, skipped=skipped + r.skipped)
 
 
 def render(cfg: Config, features: frozenset[str], snapshot: Snapshot | None = None):
