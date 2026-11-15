@@ -6,6 +6,7 @@ secret values and must either return a result or fail with a narrow, expected er
 
 from __future__ import annotations
 
+import base64
 import re
 
 import pytest
@@ -135,8 +136,19 @@ def test_notes_merge_keeps_markers_and_notes(body, mine):
     assert notes.extract(out) is not None
 
 
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+license_keys = (
+    st.text(max_size=300)
+    | st.builds("LS1.{}.{}".format, st.text(max_size=60), st.text(max_size=60))
+    | st.builds("LS1.{}.{}".format, st.binary(max_size=120).map(_b64), st.binary(max_size=80).map(_b64))
+)
+
+
 @PROFILE
-@given(st.text(max_size=300))
+@given(license_keys)
 def test_license_verify_rejects_garbage_cleanly(key):
     with pytest.raises(licensing.LicenseError):
         licensing.verify(key)
