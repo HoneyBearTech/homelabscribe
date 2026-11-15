@@ -150,6 +150,41 @@ def test_notes_merge_never_fails_and_keeps_real_notes(rendered, previous):
         assert kept in out
 
 
+def _block_as_the_templates_write_it(rendered: str) -> bool:
+    """True when the page has no notes block, or one that holds the placeholder as every template writes it.
+
+    A rendered block that holds anything else is filled in a different form when the page is merged with
+    itself (see the test below), which no template does; that case is kept apart from the stray markers.
+    """
+    head, start, rest = rendered.partition(notes.START)
+    body, end, _ = rest.partition(notes.END)
+    return not (start and end) or body == f"\n{notes.PLACEHOLDER}\n"
+
+
+@PROFILE
+@given(
+    (
+        notes_text
+        | st.tuples(notes_text, notes_text).map(
+            lambda ab: f"{ab[0]}{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}{ab[1]}"
+        )
+    ).filter(_block_as_the_templates_write_it),
+    notes_text,
+)
+def test_notes_merge_twice_gives_the_same_page(rendered, previous):
+    once = notes.merge(rendered, previous)
+    assert notes.merge(rendered, once) == once
+
+
+@pytest.mark.xfail(
+    strict=True, reason="a rendered block that is not the template's form is filled differently"
+)
+def test_notes_merge_twice_with_a_block_the_templates_never_write():
+    rendered = f"{notes.START}{notes.END}"  # no notes to keep, so the page is written as it is
+    once = notes.merge(rendered, "")
+    assert notes.merge(rendered, once) == once  # the second merge writes the block as START, "", END
+
+
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 

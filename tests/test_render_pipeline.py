@@ -688,10 +688,36 @@ def test_a_changelog_page_from_before_the_notes_block_is_rewritten_with_it(tmp_p
 def test_merge_keeps_the_notes_when_the_page_has_no_notes_block(rendered):
     previous = f"# Old\n\n## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n"
     out = notes.merge(rendered, previous)
-    assert out.startswith(rendered)
-    assert notes.extract(out[len(rendered) :]) == "Ask Jess."
+    page = rendered.replace(notes.START, "").replace(notes.END, "")  # stray markers are removed
+    assert out.startswith(page)
+    assert notes.extract(out[len(page) :]) == "Ask Jess."
     assert out.endswith(f"## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n")
-    assert "\n\n\n" not in out and (not rendered or "\n\n## Notes" in out)
+    assert out.count(notes.START) == out.count(notes.END) == 1
+    assert not page or "\n\n## Notes" in out
+    if page == rendered:
+        assert "\n\n\n" not in out
+
+
+STRAY = [
+    f"# Page\n{notes.START}\nrest\n",  # a start marker only
+    f"# Page\n{notes.END}\nrest\n",  # an end marker only
+    f"# Page\n{notes.END}\nmiddle\n{notes.START}\nrest\n",  # the end before the start
+]
+
+
+@pytest.mark.parametrize("rendered", STRAY)
+def test_a_page_with_a_stray_marker_does_not_grow_when_it_is_merged_again(rendered):
+    previous = f"# Old\n\n## Notes\n\n{notes.START}\nAsk Jess.\n{notes.END}\n"
+    once = notes.merge(rendered, previous)
+    assert notes.merge(rendered, once) == once
+    assert notes.extract(once) == "Ask Jess." and once.count("## Notes") == 1
+    assert notes.merge(rendered, None) == notes.merge(rendered, notes.merge(rendered, None))
+
+
+def test_removing_markers_also_removes_one_that_a_removal_brings_together():
+    nested = f"a<!-- homelabscribe:{notes.START}notes:start -->b"
+    out = notes.merge(nested, f"{notes.START}\nmine\n{notes.END}")
+    assert out.count(notes.START) == 1 and out.startswith("ab\n\n## Notes")
 
 
 @pytest.mark.parametrize(
