@@ -223,3 +223,139 @@ def test_one_line_longer_than_the_budget_is_counted_as_left_out():
 def test_skip_lines_hold_only_the_relative_text(tmp_path):
     sent = _run(tmp_path, [Skip("services/plex.md", "not UTF-8, left as it is")])
     assert str(tmp_path) not in sent[0][2] and "/" not in sent[0][2].replace("services/plex.md", "")
+
+
+# --- a failed render, untrusted names, Discord ------------------------------------------------------------
+
+
+def _round(tmp_path, skips, complete, **kw):
+    sent = []
+    notify.notify_after_scan(
+        [DISCORD],
+        tmp_path,
+        None,
+        [],
+        skips,
+        post=lambda t, title, body: sent.append(body),
+        render_complete=complete,
+        **kw,
+    )
+    return sent
+
+
+def test_a_failed_render_keeps_known_skips_and_announces_no_recovery(tmp_path):
+    plex = Skip("services/plex.md", "not UTF-8, left as it is")
+    assert len(_round(tmp_path, [plex], True)) == 1
+    assert _round(tmp_path, [], False) == []  # no "Every skipped file can be read again."
+    assert _state(tmp_path)["skips"] == ["services/plex.md"]
+    assert _round(tmp_path, [plex], True) == []  # still bad: not sent again
+
+
+def test_a_failed_render_still_sends_new_scan_skips_and_adds_them_to_the_state(tmp_path):
+    _round(tmp_path, [Skip("a.md", "r")], True)
+    sent = _round(tmp_path, [Skip("changelog.json", "r")], False)
+    assert sent == ["Skipped: changelog.json (r)"]
+    assert _state(tmp_path)["skips"] == ["a.md", "changelog.json"]
+
+
+def test_a_completed_render_after_a_failed_one_can_announce_recovery(tmp_path):
+    _round(tmp_path, [Skip("a.md", "r")], True)
+    _round(tmp_path, [], False)
+    assert _round(tmp_path, [], True) == ["Every skipped file can be read again."]
+
+
+def test_a_name_that_is_not_utf8_is_sent_escaped_and_kept_as_it_is_in_the_state(tmp_path):
+    bad = Skip("services/broken-\udcff.md", "not UTF-8, left as it is")
+    for target, shown in ((NTFY, "broken-\\udcff.md"), (DISCORD, "broken-\\\\udcff.md")):
+        sent = []
+        notify.notify_after_scan(
+            [target],
+            tmp_path / target.type,
+            None,
+            [],
+            [bad],
+            post=lambda t, title, body, s=sent: s.append(body),
+        )
+        sent[0].encode("utf-8")  # does not raise
+        assert shown in sent[0]
+    state = (tmp_path / "ntfy" / notify.STATE_FILE).read_bytes()
+    assert json.loads(state)["skips"] == ["services/broken-\udcff.md"]
+    again = []
+    notify.notify_after_scan([NTFY], tmp_path / "ntfy", None, [], [bad], post=lambda *a: again.append(a))
+    assert again == []  # the original path is what is compared
+
+
+def test_other_lines_with_a_lone_surrogate_can_be_encoded_too():
+    _, body = notify.build_message(None, ["Docker host '\udcff'"], False, ["errors"])
+    body.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["a\nCould not read: x", "a\rb", "a\tb", "a\x00b\x1fc\x7fd", "a‮b⁦c⁩d"],
+)
+@pytest.mark.parametrize("target", [NTFY, DISCORD])
+def test_a_file_name_is_always_exactly_one_line(tmp_path, name, target):
+    sent = []
+    notify.notify_after_scan(
+        [target], tmp_path, None, [], [Skip(f"services/{name}.md", "r")], post=lambda t, ti, b: sent.append(b)
+    )
+    body = sent[0]
+    assert len(body.splitlines()) == 1 and body.startswith("Skipped: services/")
+    assert not any(
+        ord(c) < 0x20 or ord(c) == 0x7F or 0x202A <= ord(c) <= 0x202E or 0x2066 <= ord(c) <= 0x2069
+        for c in body
+    )
+
+
+def test_escaped_names_count_as_real_lines_for_the_cap():
+    skips = [Skip(f"a\nb{i}", "r") for i in range(20)]
+    body = notify.build_message(None, [], False, ["errors"], skips)[1]
+    assert len(body.splitlines()) == notify.MAX_LINES + 1 and body.endswith("...and 5 more")
+
+
+def test_discord_names_cannot_format_or_link_but_ntfy_names_are_plain():
+    skip = Skip("services/**x**`y`_z_[x](https://e.invalid)<@1>|~\\", "r")
+    discord = notify.build_message(None, [], False, ["errors"], [skip], kind="discord")[1]
+    assert discord == (
+        "Skipped: services/\\*\\*x\\*\\*\\`y\\`\\_z\\_\\[x\\]\\(https://e.invalid\\)\\<@1\\>\\|\\~\\\\ (r)"
+    )
+    ntfy = notify.build_message(None, [], False, ["errors"], [skip], kind="ntfy")[1]
+    assert ntfy == "Skipped: services/**x**`y`_z_[x](https://e.invalid)<@1>|~\\ (r)"
+
+
+def test_every_discord_message_forbids_mentions(monkeypatch):
+    import requests
+
+    got = {}
+
+    class _R:
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(requests, "post", lambda url, json=None, **kw: got.update(json=json) or _R())
+    notify._post(DISCORD, "HomelabScribe", "Skipped: @everyone <@1> (r)")
+    assert got["json"]["allowed_mentions"] == {"parse": []}
+    assert got["json"]["content"].startswith("**HomelabScribe**\n")
+
+
+@pytest.mark.parametrize("key", ["on", '"on"'])
+def test_notify_on_works_quoted_and_unquoted(tmp_path, key):
+    from homelabscribe.config import load_config
+
+    path = tmp_path / "c.yaml"
+    path.write_text(f"notify:\n  - type: ntfy\n    url: http://x.invalid/t\n    {key}: [changes]\n")
+    assert load_config(path).notify[0].on == ["changes"]
+
+
+def test_notify_with_on_twice_is_a_config_error(tmp_path):
+    from pydantic import ValidationError
+
+    from homelabscribe.config import load_config
+
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        'notify:\n  - type: ntfy\n    url: http://x.invalid/t\n    on: [changes]\n    "on": [errors]\n'
+    )
+    with pytest.raises(ValidationError, match="`on` twice"):
+        load_config(path)

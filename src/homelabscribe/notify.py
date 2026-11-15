@@ -22,9 +22,43 @@ MAX_CHARS = 1900
 MAX_BYTES = 3000
 
 
+_BIDI = {*range(0x202A, 0x202F), *range(0x2066, 0x206A)}
+_DISCORD_MARKUP = set("\\*_~`|>[]()<")
+
+
 def _path(skip: str) -> str:
     """The file a skip is about: `Skip.path`, or the whole text for a plain string."""
     return getattr(skip, "path", None) or str(skip)
+
+
+def _encodable(text: str) -> str:
+    """A name that is not UTF-8 holds lone surrogates; they show as `\\udcff` so the text can be sent."""
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def _plain(text: str) -> str:
+    """Always-encodable, one-line text: lone surrogates, control and bidi characters are escaped."""
+    text = _encodable(text)
+    out = []
+    for ch in text:
+        o = ord(ch)
+        if ch in "\n\r\t":
+            out.append({"\n": "\\n", "\r": "\\r", "\t": "\\t"}[ch])
+        elif o < 0x20 or o == 0x7F or o in _BIDI:
+            out.append(f"\\x{o:02x}" if o < 0x100 else f"\\u{o:04x}")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _skip_line(skip: str, discord: bool) -> str:
+    """`Skipped: <path> (<reason>)`, the file name made safe as text (and, for Discord, as plain markup)."""
+    path = _path(skip)
+    reason = str(skip)[len(path) :] if str(skip).startswith(path) else ""  # ` (<reason>)`, or nothing
+    name = _plain(path)
+    if discord:
+        name = "".join("\\" + ch if ch in _DISCORD_MARKUP else ch for ch in name)
+    return f"Skipped: {name}{_plain(reason)}"
 
 
 def _fits(text: str) -> bool:
@@ -33,6 +67,7 @@ def _fits(text: str) -> bool:
 
 def _trim(lines: list[str]) -> str:
     """At most MAX_LINES whole lines that fit the size budget, then `...and N more` for all left out."""
+    lines = [_encodable(ln) for ln in lines]  # whatever the source of a line, it can be encoded
     for keep in range(min(len(lines), MAX_LINES), -1, -1):
         shown = lines[:keep]
         if keep < len(lines):
@@ -50,6 +85,7 @@ def build_message(
     on: list[str],
     skips: Sequence[str] = (),
     skips_recovered: bool = False,
+    kind: str = "ntfy",
 ) -> tuple[str, str] | None:
     """(title, body) for what is worth saying, or None. The title is fixed; file names go in the body."""
     lines: list[str] = []
@@ -57,7 +93,7 @@ def build_message(
         lines += [f"Could not read: {e}" for e in errors]
         if recovered:
             lines.append("Every source can be read again.")
-        lines += [f"Skipped: {s}" for s in skips]
+        lines += [_skip_line(s, kind == "discord") for s in skips]
         if skips_recovered:
             lines.append("Every skipped file can be read again.")
     if "changes" in on and diff and not diff.empty:
@@ -71,7 +107,11 @@ def _post(target: NotifyConfig, title: str, body: str) -> None:
     import requests  # imported lazily so tests don't need the network
 
     if target.type == "discord":
-        r = requests.post(target.url, json={"content": f"**{title}**\n{body}"}, timeout=10)
+        r = requests.post(
+            target.url,
+            json={"content": f"**{title}**\n{body}", "allowed_mentions": {"parse": []}},
+            timeout=10,
+        )
     else:
         headers = {"Title": title}
         if target.token:
@@ -108,11 +148,13 @@ def notify_after_scan(
     errors: list[str],
     skips: Sequence[str] = (),
     post=_post,
+    render_complete: bool = True,
 ) -> list[str]:
     """Notify when changes appear or the set of unreadable sources or skipped files changes.
 
     `skips` are the files left alone in this round (`Skip` texts). Each is sent once, until it goes away.
-    Returns delivery failures.
+    A round whose render did not complete (`render_complete=False`) has only some of its skips: the new
+    ones are sent, but none is dropped from the state and no recovery is announced. Returns delivery failures.
     """
     state_path = state_dir / STATE_FILE
     known = _known(state_path, "errors")
@@ -122,7 +164,9 @@ def notify_after_scan(
     for s in skips:
         by_path.setdefault(_path(s), s)
     current_skips = set(by_path)
-    new_skips = [by_path[p] for p in sorted(current_skips - known_skips)]
+    if not render_complete:
+        current_skips |= known_skips
+    new_skips = [by_path[p] for p in sorted(set(by_path) - known_skips)]
     failed: list[str] = []
     for t in targets:
         new_errors = sorted(current - known)
@@ -132,7 +176,8 @@ def notify_after_scan(
             bool(known) and not current,
             t.on,
             new_skips,
-            bool(known_skips) and not current_skips,
+            render_complete and bool(known_skips) and not current_skips,
+            t.type,
         )
         if msg:
             failed += send([t], *msg, post=post)

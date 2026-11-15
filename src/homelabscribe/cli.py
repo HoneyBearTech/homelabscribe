@@ -48,7 +48,8 @@ def _report_file_skips(skips: list[Skip], seen: set[str]) -> None:
     for skip in skips:
         if skip.path not in seen:
             seen.add(skip.path)
-            typer.secho(f"  skipped: {skip}", fg="yellow")
+            # a name that is not UTF-8 holds lone surrogates, which a terminal cannot be given as they are
+            typer.secho(f"  skipped: {skip}".encode("utf-8", "backslashreplace").decode(), fg="yellow")
 
 
 def _report_rendered(rendered: pipeline.Rendered, cfg: Config, seen: set[str] | None = None) -> None:
@@ -82,14 +83,20 @@ def _render(cfg: Config, feats: frozenset[str], snapshot=None) -> pipeline.Rende
 
 
 def _notify(
-    cfg: Config, feats: frozenset[str], result: pipeline.ScanResult, skips: list[Skip] | None = None
+    cfg: Config,
+    feats: frozenset[str],
+    result: pipeline.ScanResult,
+    skips: list[Skip] | None = None,
+    render_complete: bool = True,
 ) -> None:
     if not cfg.notify:
         return
     if "notify" not in feats:
         typer.secho("Notifications need Pro. Skipped.", fg="yellow")
         return
-    for msg in notify.notify_after_scan(cfg.notify, cfg.state_dir, result.diff, result.errors, skips or []):
+    for msg in notify.notify_after_scan(
+        cfg.notify, cfg.state_dir, result.diff, result.errors, skips or [], render_complete=render_complete
+    ):
         typer.secho(f"  notification failed: {msg}", fg="red")
 
 
@@ -150,11 +157,13 @@ def run(
         _report_scan(result, seen)
         skips = list(result.file_skips)  # every file left alone in this round, for the one notification
         rendered = None
+        complete = False  # only a render that finished knows every skip of the round
         try:
             rendered = _render(cfg, feats, result.snapshot)
             skips += rendered.skipped + (rendered.html.skipped if rendered.html else [])
-        finally:  # a failed render still sends what the scan found
-            _notify(cfg, feats, result, skips)
+            complete = True
+        finally:  # a failed render still sends what the scan found, but forgets and announces nothing
+            _notify(cfg, feats, result, skips, complete)
         _report_rendered(rendered, cfg, seen)
         if not every:
             if strict and (result.errors or result.file_skips or _skipped(rendered)):

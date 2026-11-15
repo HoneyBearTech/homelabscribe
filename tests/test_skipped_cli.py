@@ -279,3 +279,60 @@ def test_scan_and_render_alone_never_notify(config, tmp_path, posted):
     assert runner.invoke(app, ["scan", "-c", str(config)]).exit_code == 0
     assert runner.invoke(app, ["render", "-c", str(config)]).exit_code == 0
     assert posted == []
+
+
+def _state(tmp_path):
+    return json.loads((tmp_path / "state" / "notify-state.json").read_text())
+
+
+def test_a_failed_render_does_not_clear_or_announce_page_skips(config, tmp_path, posted, monkeypatch):
+    from homelabscribe import pipeline
+
+    _bad_page(config, tmp_path)
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    assert len(posted) == 1 and "services/sonarr.md" in posted[0]
+    posted.clear()
+    real = pipeline.render_pages
+
+    def boom(cfg, feats, snapshot=None):
+        raise RuntimeError("No snapshot yet")
+
+    monkeypatch.setattr(pipeline, "render_pages", boom)
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 1
+    assert posted == [] and _state(tmp_path)["skips"] == ["services/sonarr.md"]
+    monkeypatch.setattr(pipeline, "render_pages", real)
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    assert posted == []  # still bad, already sent
+    # and a render that is stopped by the keyboard does the same
+    monkeypatch.setattr(pipeline, "render_pages", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+    runner.invoke(app, ["run", "-c", str(config)])
+    assert posted == [] and _state(tmp_path)["skips"] == ["services/sonarr.md"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs file names that are not UTF-8")
+def test_run_sends_a_page_whose_name_is_not_utf8(config, tmp_path, posted):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    posted.clear()
+    odd = os.fsdecode(os.fsencode(tmp_path / "docs" / "services") + b"/broken-\xff.md")
+    with open(odd, "wb") as f:
+        f.write(os.urandom(32) + b"\xff")
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    assert len(posted) == 1 and "services/broken-\\\\udcff.md" in posted[0]  # Discord escapes the backslash
+    posted[0].encode("utf-8")
+    assert _state(tmp_path)["skips"] == ["services/broken-\udcff.md"]
+    posted.clear()
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0 and posted == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs odd file names")
+def test_run_sends_a_hostile_file_name_as_one_safe_line(config, tmp_path, posted):
+    assert runner.invoke(app, ["run", "-c", str(config)]).exit_code == 0
+    posted.clear()
+    name = "x\nCould not read: y @everyone **b**"
+    (tmp_path / "docs" / "services" / f"{name}.md").write_bytes(os.urandom(32) + b"\xff")
+    result = runner.invoke(app, ["run", "-c", str(config)])
+    assert result.exit_code == 0, result.output
+    body = posted[0].split("\n", 1)[1]
+    assert len(body.splitlines()) == 1 and body.startswith("Skipped: services/x\\\\n")
+    assert "\\*\\*b\\*\\*" in body
