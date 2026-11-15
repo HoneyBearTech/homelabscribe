@@ -728,6 +728,28 @@ def test_h10_a_failed_replace_leaves_the_old_file_and_no_temporary_file(tmp_path
     assert len(result.skipped) == 1 and result.skipped[0].startswith("services/plex.html")
 
 
+def test_h10_a_page_whose_html_file_name_is_near_the_limit_can_be_replaced(tmp_path):
+    out, html = tmp_path / "docs", tmp_path / "html"
+    name = "a" * 245  # 245 + ".html" = 250 bytes
+    page = out / "services" / f"{name}.md"
+    first = f"# Long\n{notes.START}\n{notes.PLACEHOLDER}\n{notes.END}\n"
+    page.parent.mkdir(parents=True)
+    try:
+        page.write_text(first)
+        (html / "services").mkdir(parents=True)
+        (html / "services" / f"{name}.html").write_text("")
+    except OSError:
+        pytest.skip("the filesystem refuses a file name this long")
+    (html / "services" / f"{name}.html").unlink()
+    generated = [page]
+    assert htmlsite.export(out, html, generated).changed == [html / "services" / f"{name}.html"]
+    page.write_text(first.replace(notes.PLACEHOLDER, "Changed text."))
+    again = htmlsite.export(out, html, generated)
+    assert again.skipped == [] and again.changed == [html / "services" / f"{name}.html"]
+    assert "Changed text." in (html / "services" / f"{name}.html").read_text()
+    assert not _leftovers(html)
+
+
 @pytest.mark.parametrize("fails", ["write", "close"])
 def test_h10_a_failed_write_of_a_new_file_leaves_no_file(tmp_path, monkeypatch, fails):
     out, html, plex = _changed_plex(tmp_path)
