@@ -674,22 +674,27 @@ def test_a_title_with_an_escaped_bracket_is_read_as_markdown_reads_it(tmp_path):
     )
 
 
-@pytest.mark.parametrize("title", ["A | b", "A\nb"])
-def test_a_line_whose_link_text_is_not_one_piece_is_left_as_written(tmp_path, title):
+@pytest.mark.parametrize(
+    ("title", "page", "in_list"),
+    [
+        ("A | b", "a-b", "fixed"),  # a `|` outside a table is just text
+        ("A\nb", "a-b", "as written"),  # a link over two lines
+        ("x](y.md) [z", "x-y-md-z", "as written"),  # Markdown would read another link
+        ("![img](a.md)", "img-a-md", "as written"),
+    ],
+)
+def test_a_line_whose_link_text_is_not_one_piece_is_left_as_written(tmp_path, title, page, in_list):
     noted = ["services/plex.md", "hosts/media.md"]
     data = _remove(tmp_path, noted, ["plex", "sonarr", "overseerr"], ["media"], lab=_titled(title))
     plex = (tmp_path / "archive" / "services" / "plex.md").read_bytes()
     media = (tmp_path / "archive" / "hosts" / "media.md").read_bytes()
     assert b"](../../archive/hosts/media.md)" in plex and b"- Used by Overseerr\n" in plex
     assert b"| [Plex](../../archive/services/plex.md) |" in media and b"| Overseerr |" in media
-    row = f"| [{title}](../services/a-b.md) |".encode()
-    assert row in data["hosts/media.md"] and row in media  # a `|` or a line break in a table row: as written
-    item = f"- Depends on [{title}](a-b.md)\n".encode()
+    row = f"| [{title}](../services/{page}.md) |".encode()
+    assert row in data["hosts/media.md"] and row in media  # in the host's table: as written
+    item = f"- Depends on [{title}]({page}.md)\n".encode()
     assert item in data["services/plex.md"]
-    if "\n" in title:
-        assert item in plex  # a link over two lines: as written
-    else:
-        assert f"- Depends on {title}\n".encode() in plex  # a `|` outside a table is just text
+    assert (f"- Depends on {title}\n".encode() if in_list == "fixed" else item) in plex
 
 
 def test_generated_looking_lines_outside_their_place_or_in_a_code_block_are_left_alone(tmp_path):
