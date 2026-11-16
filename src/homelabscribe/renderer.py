@@ -674,14 +674,16 @@ class Renderer:
     def _sweep(self) -> None:
         """Pages for services and hosts that no longer exist: archive if they hold notes, else delete.
 
-        A page that cannot be read or is not UTF-8 is never deleted or archived: it is left as it is.
-        First every page's fate is decided, in `services/` and then `hosts/`, and each page to archive
-        takes its name in `archive/` (`_reserve`). Only then are the copies written, with their generated
-        links pointed at where each page is after this run (`_where`), so a page archived as `plex-2.md`
-        is linked as that. If a copy cannot be finished after all, the links to it already written keep its
-        name, which is the one it normally gets when it is archived on the next run.
+        A page that cannot be read or is not UTF-8 is never deleted or archived: it is left as it is, and so
+        is a page without notes that was saved again after it was read. First every page's fate is decided,
+        in `services/` and then `hosts/`, and each page to archive takes its name in `archive/` (`_reserve`).
+        Only then are the copies written, with their generated links pointed at where each page is after
+        this run (`_where`), so a page archived as `plex-2.md` is linked as that. If a copy cannot be
+        finished after all, the links to it already written keep its name, which is the one it normally
+        gets when it is archived on the next run.
         """
-        plan: list[tuple[Path, _Copy | str | None]] = []  # a copy to write, a reason to skip, or None: delete
+        # A copy to write, a reason to skip, or the version read of a page without notes, to delete.
+        plan: list[tuple[Path, _Copy | str | os.stat_result | None]] = []
         try:
             for folder in ("services", "hosts"):
                 d = self.out / folder
@@ -694,13 +696,15 @@ class Renderer:
                 if isinstance(fate, str):
                     self._skip(f, fate)
                     continue
-                if fate is None:
+                if isinstance(fate, os.stat_result):  # deleted, if it is still the version that was read
+                    if not _still(f, fate):
+                        continue
                     try:
                         f.unlink()
                     except OSError:
                         self._skip(f, "could not be removed, left as it is")
                         continue
-                else:
+                elif isinstance(fate, _Copy):
                     plan[i] = (f, None)  # `_archive` finishes or removes the copy, whatever happens
                     try:
                         archived = _archive(fate, _relinked(fate.data, f.parent.name, where))
@@ -715,17 +719,18 @@ class Renderer:
                 if isinstance(fate, _Copy):
                     _drop(fate)
 
-    def _fate(self, page: Path, folder: str) -> _Copy | str | None:
+    def _fate(self, page: Path, folder: str) -> _Copy | str | os.stat_result:
         """What happens to a page that was not written in this run: its copy in `archive/<folder>/` when it
-        holds notes, None when it is to be deleted, or why it is left as it is."""
+        holds notes, the version read when it does not (it is deleted), or why it is left as it is."""
         try:
-            kept = notes.extract(self._read(page))
+            text, version = fsutil.read_text_version(page)
         except UnicodeDecodeError:
             return "not UTF-8, left as it is"
         except OSError:
             return "could not be read, left as it is"
+        kept = notes.extract(text)
         if not kept or kept.strip() == notes.PLACEHOLDER:
-            return None
+            return version
         dest = self.out / "archive" / folder
         try:
             dest.mkdir(parents=True, exist_ok=True)

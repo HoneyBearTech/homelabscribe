@@ -10,7 +10,7 @@ import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from homelabscribe import licensing, notes, pipeline
+from homelabscribe import fsutil, licensing, notes, pipeline
 from homelabscribe import renderer as renderer_module
 from homelabscribe.config import Config, DockerHostConfig, ProxmoxConfig
 from homelabscribe.demo import demo_snapshots
@@ -668,6 +668,41 @@ def test_a_page_whose_copy_fails_is_linked_by_the_name_it_gets_on_the_next_run(t
     assert not _dead_links(tmp_path)
 
 
+def _plex_and_a_beta_with_notes(out) -> Snapshot:
+    """The linked lab rendered, Plex's and A [beta]'s pages given notes; returns the lab without them."""
+    lab = _linked_lab()
+    Renderer(out).render(lab)
+    for name in ("plex", "a-beta"):
+        _with_notes(out / "services" / f"{name}.md", f"Notes on {name}.")
+    lab.services = [s for s in lab.services if s.name not in ("plex", "sonarr")]
+    return lab
+
+
+def test_a_page_without_notes_given_notes_while_other_pages_are_read_is_kept(tmp_path, monkeypatch):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    a_beta = tmp_path / "services" / "a-beta.md"
+    a_beta.write_text(a_beta.read_text().replace("Notes on a-beta.", notes.PLACEHOLDER))  # no notes: deleted
+    real_read = fsutil.read_text_version
+
+    def read(path):
+        if path.name == "plex.md":  # read after A [beta]: the user saves notes in A [beta] meanwhile
+            _with_notes(a_beta, "Saved just now.")
+        return real_read(path)
+
+    monkeypatch.setattr(fsutil, "read_text_version", read)
+    r = Renderer(tmp_path)
+    r.render(lab)
+    assert "Saved just now." in a_beta.read_text()  # kept, for the next run
+    assert a_beta not in r.written
+    assert "- Depends on A [beta]\n" in (tmp_path / "archive" / "services" / "plex.md").read_text()
+    monkeypatch.undo()
+    Renderer(tmp_path).render(lab)
+    assert (
+        not a_beta.exists()
+        and "Saved just now." in (tmp_path / "archive" / "services" / "a-beta.md").read_text()
+    )
+
+
 def test_an_error_that_ends_the_run_leaves_no_empty_copy(tmp_path, monkeypatch):
     def interrupted(fd, data):
         os.close(fd)
@@ -689,7 +724,9 @@ def test_a_page_that_is_no_longer_utf8_when_it_is_copied_is_copied_as_it_is(tmp_
     def save_as_latin1():  # as if saved in another encoding after the old-page clean-up read it as UTF-8
         page = tmp_path / "services" / "plex.md"
         page.write_bytes(page.read_text().replace("Notes on services/plex.md.", "Café").encode("latin-1"))
-        monkeypatch.setattr(Renderer, "_read", staticmethod(lambda path: path.read_bytes().decode("latin-1")))
+        monkeypatch.setattr(
+            fsutil, "read_text_version", lambda path: (path.read_bytes().decode("latin-1"), os.stat(path))
+        )
 
     data = _remove(tmp_path, ["services/plex.md"], services=["plex"], before=save_as_latin1)
     assert b"Caf\xe9" in data["services/plex.md"]
