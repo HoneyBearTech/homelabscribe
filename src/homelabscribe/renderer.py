@@ -418,6 +418,9 @@ class Renderer:
         self.env.filters["config_vars"] = config_vars
         self.written: list[Path] = []
         self.generated: set[Path] = set()
+        self.confirmed: set[Path] = (
+            set()
+        )  # the pages of `generated` written, or found unchanged, without a skip
         self.skipped: list[Skip] = []  # `<page> (<reason>)` for each page left alone
         self.notices: list[str] = []  # one line for each page whose name was already another page's
 
@@ -675,6 +678,7 @@ class Renderer:
             return
         merged = notes.merge(replace_surrogates(content), previous)
         if merged == previous:
+            self.confirmed.add(path)
             return
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -683,6 +687,7 @@ class Renderer:
             self._skip(path, "could not be written, left as it is")
             return
         self.written.append(path)
+        self.confirmed.add(path)
 
     def _write_problem(self, path: Path) -> str | None:
         """Why nothing may be written to `path`: the page itself is a link, a folder or not a plain file.
@@ -805,9 +810,10 @@ class Renderer:
                 self._skip(copy.dest, "its links could not be updated, left as it is")
 
     def _live(self) -> set[Path]:
-        """The service and host pages written or confirmed in this run that are on disk as plain files."""
+        """The service and host pages written, or found unchanged, in this run without a skip, that are on
+        disk as plain files."""
         folders = {self.out / "services", self.out / "hosts"}
-        return {p for p in self.generated if p.parent in folders and _plain_file(p)}
+        return {p for p in self.confirmed if p.parent in folders and _plain_file(p)}
 
     def _where(self, folder: str, name: str, *, live: set[Path], now: relink.Where) -> str | None:
         """Where the page `<folder>/<name>.md` is after this run, below the output folder: there, when it is

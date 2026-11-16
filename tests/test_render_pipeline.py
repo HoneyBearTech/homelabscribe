@@ -418,10 +418,10 @@ def _linked_lab() -> Snapshot:
     )
 
 
-def _remove(out, noted, services=(), hosts=(), before=None, lab=None) -> dict[str, bytes]:
+def _remove(out, noted, services=(), hosts=(), before=None, lab=None, renderer=None) -> dict[str, bytes]:
     """Render the lab (`_linked_lab` unless given), give the pages in `noted` notes, call `before`, then
-    render the lab without the services and hosts named. Returns the bytes of each page in `noted` just
-    before that second run."""
+    render the lab without the services and hosts named (with `renderer`, if given). Returns the bytes of
+    each page in `noted` just before that second run."""
     lab = lab or _linked_lab()
     Renderer(out).render(lab)
     for rel in noted:
@@ -431,7 +431,7 @@ def _remove(out, noted, services=(), hosts=(), before=None, lab=None) -> dict[st
     data = {rel: (out / rel).read_bytes() for rel in noted}
     lab.services = [s for s in lab.services if s.name not in services]
     lab.hosts = [h for h in lab.hosts if h.name not in hosts]
-    Renderer(out).render(lab)
+    (renderer or Renderer(out)).render(lab)
     return data
 
 
@@ -712,6 +712,42 @@ def test_generated_looking_lines_outside_their_place_or_in_a_code_block_are_left
             "| Is the Docker host | [media](../hosts/media.md) |",
             "| Is the Docker host | [media](../../hosts/media.md) |",
         ),
+    )
+
+
+@pytest.mark.parametrize("problem", ["not UTF-8", "unreadable", "read-only and changed"])
+def test_a_link_to_a_page_skipped_in_the_run_becomes_its_text(tmp_path, problem):
+    if problem != "not UTF-8" and (os.name != "posix" or os.geteuid() == 0):
+        pytest.skip("root can read and write any file")
+    a_beta = tmp_path / "services" / "a-beta.md"
+    lab = _linked_lab()
+
+    def spoil_a_beta():
+        if problem == "not UTF-8":
+            a_beta.write_bytes(a_beta.read_text().replace("Runs on", "Läuft auf").encode("latin-1"))
+        elif problem == "unreadable":
+            a_beta.chmod(0o000)
+        else:
+            a_beta.chmod(0o444)
+            next(s for s in lab.services if s.name == "sonarr").status = "running"  # its page has to change
+
+    r = Renderer(tmp_path)
+    try:
+        data = _remove(tmp_path, ["services/plex.md"], ["plex"], before=spoil_a_beta, lab=lab, renderer=r)
+    finally:
+        a_beta.chmod(0o644)
+    reason = {"not UTF-8": "not UTF-8", "unreadable": "could not be read"}.get(
+        problem, "could not be written"
+    )
+    assert r.skipped == [f"services/a-beta.md ({reason}, left as it is)"]
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],
+        ("](../hosts/media.md)", "](../../hosts/media.md)"),
+        (
+            "- Depends on [A [beta]](a-beta.md)\n",
+            "- Depends on A [beta]\n",
+        ),  # skipped: not a page of this run
+        ("](overseerr.md)", "](../../services/overseerr.md)"),
     )
 
 
