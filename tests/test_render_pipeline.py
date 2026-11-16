@@ -638,36 +638,6 @@ def test_links_in_the_notes_and_the_rest_of_the_page_are_kept_with_crlf_and_any_
     )
 
 
-def test_a_page_whose_copy_fails_is_linked_by_the_name_it_gets_on_the_next_run(tmp_path, monkeypatch):
-    real_fill = renderer_module._fill
-    archive = tmp_path / "archive" / "services"
-
-    def fail_for_a_beta(fd, data):
-        if b"# A [beta]" in data:
-            os.close(fd)
-            raise OSError(28, "No space left on device")
-        real_fill(fd, data)
-
-    lab = _linked_lab()
-    Renderer(tmp_path).render(lab)
-    for name in ("plex", "a-beta"):
-        _with_notes(tmp_path / "services" / f"{name}.md", f"Notes on {name}.")
-    lab.services = [s for s in lab.services if s.name not in ("plex", "sonarr")]
-    monkeypatch.setattr(renderer_module, "_fill", fail_for_a_beta)
-    r = Renderer(tmp_path)
-    r.render(lab)
-    assert r.skipped == ["services/a-beta.md (could not be archived, left as it is)"]
-    assert (tmp_path / "services" / "a-beta.md").exists() and not (archive / "a-beta.md").exists()
-    assert "- Depends on [A [beta]](../../archive/services/a-beta.md)" in (archive / "plex.md").read_text()
-    monkeypatch.undo()
-    Renderer(tmp_path).render(lab)  # the next run archives it, under the name the link has
-    assert "Notes on a-beta." in (archive / "a-beta.md").read_text()
-    assert (
-        "- Used by Plex\n" in (archive / "a-beta.md").read_text()
-    )  # archived in an earlier run: not looked for
-    assert not _dead_links(tmp_path)
-
-
 def _plex_and_a_beta_with_notes(out) -> Snapshot:
     """The linked lab rendered, Plex's and A [beta]'s pages given notes; returns the lab without them."""
     lab = _linked_lab()
@@ -676,6 +646,130 @@ def _plex_and_a_beta_with_notes(out) -> Snapshot:
         _with_notes(out / "services" / f"{name}.md", f"Notes on {name}.")
     lab.services = [s for s in lab.services if s.name not in ("plex", "sonarr")]
     return lab
+
+
+def _on_fill(monkeypatch, when: bytes, then):
+    """Make `_fill` call `then(fd, data)` instead for the copy whose bytes hold `when`."""
+    real_fill = renderer_module._fill
+
+    def fill(fd, data):
+        if when in data:
+            then(fd, data)
+        else:
+            real_fill(fd, data)
+
+    monkeypatch.setattr(renderer_module, "_fill", fill)
+
+
+def _no_space(fd, data):
+    os.close(fd)
+    raise OSError(28, "No space left on device")
+
+
+@pytest.mark.parametrize(
+    ("failing", "linked_from", "line"),
+    [
+        ("a-beta", "plex", "- Depends on A [beta]\n"),  # copied before the page that links to it
+        ("plex", "a-beta", "- Used by Plex\n"),  # copied after it: that copy is written again
+    ],
+)
+def test_a_page_whose_copy_fails_is_not_linked_to(tmp_path, monkeypatch, failing, linked_from, line):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    archive = tmp_path / "archive" / "services"
+    _on_fill(monkeypatch, f"Notes on {failing}.".encode(), _no_space)
+    r = Renderer(tmp_path)
+    r.render(lab)
+    assert r.skipped == [f"services/{failing}.md (could not be archived, left as it is)"]
+    assert (tmp_path / "services" / f"{failing}.md").exists() and not (archive / f"{failing}.md").exists()
+    assert (
+        line in (archive / f"{linked_from}.md").read_text()
+    )  # its text: no link to a copy that is not there
+    assert sorted(p.name for p in archive.iterdir()) == [f"{linked_from}.md"]  # no temporary file left
+    assert not _dead_links(tmp_path)
+
+
+def test_a_page_saved_while_it_is_copied_is_not_linked_to(tmp_path, monkeypatch):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    plex = tmp_path / "services" / "plex.md"
+    real_fill = renderer_module._fill
+
+    def fill_then_save(fd, data):
+        real_fill(fd, data)
+        plex.write_text(plex.read_text().replace("Notes on plex.", "Newer notes on plex."))
+
+    _on_fill(monkeypatch, b"Notes on plex.", fill_then_save)
+    Renderer(tmp_path).render(lab)
+    archive = tmp_path / "archive" / "services"
+    assert "Newer notes on plex." in plex.read_text() and not (archive / "plex.md").exists()
+    assert "- Used by Plex\n" in (archive / "a-beta.md").read_text()
+    assert not _dead_links(tmp_path)
+
+
+def test_a_page_that_gets_another_name_than_expected_is_linked_by_that_name(tmp_path, monkeypatch):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    archive = tmp_path / "archive" / "services"
+    real_fill = renderer_module._fill
+
+    def fill_then_take_plexs_name(fd, data):
+        real_fill(fd, data)
+        (archive / "plex.md").write_bytes(b"put here by hand\n")  # while A [beta] is archived
+
+    _on_fill(monkeypatch, b"Notes on a-beta.", fill_then_take_plexs_name)
+    Renderer(tmp_path).render(lab)
+    assert (archive / "plex.md").read_bytes() == b"put here by hand\n"
+    assert "Notes on plex." in (archive / "plex-2.md").read_text()
+    assert "- Used by [Plex](../../archive/services/plex-2.md)\n" in (archive / "a-beta.md").read_text()
+    assert sorted(p.name for p in archive.iterdir()) == ["a-beta.md", "plex-2.md", "plex.md"]
+    assert not _dead_links(tmp_path)
+
+
+@pytest.mark.parametrize("change", ["edited", "replaced", "removed"])
+def test_a_copy_changed_before_its_links_are_fixed_is_left_alone(tmp_path, monkeypatch, change):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    copy = tmp_path / "archive" / "services" / "a-beta.md"
+    mine = b"the user's own text\n"
+
+    def change_the_copy_and_fail(fd, data):
+        if change == "edited":
+            copy.write_bytes(mine)  # the same file, other bytes
+        elif change == "replaced":
+            copy.unlink()
+            copy.write_bytes(mine)  # another file under the name
+        else:
+            copy.unlink()
+        _no_space(fd, data)
+
+    _on_fill(monkeypatch, b"Notes on plex.", change_the_copy_and_fail)
+    Renderer(tmp_path).render(lab)
+    if change == "removed":
+        assert not copy.exists()
+    else:
+        assert copy.read_bytes() == mine
+    assert sorted(p.name for p in copy.parent.iterdir()) == ([] if change == "removed" else ["a-beta.md"])
+
+
+def test_a_copy_whose_links_cannot_be_fixed_is_kept_and_reported(tmp_path, monkeypatch):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    copy = tmp_path / "archive" / "services" / "a-beta.md"
+    _on_fill(monkeypatch, b"Notes on plex.", _no_space)
+    real_fix = Renderer._fix_copies
+
+    def fix_copies_on_a_full_disk(self, *args):
+        before = copy.read_bytes()
+        monkeypatch.setattr(os, "replace", lambda src, dst: _no_space(os.open(os.devnull, os.O_RDONLY), b""))
+        real_fix(self, *args)
+        monkeypatch.undo()
+        assert copy.read_bytes() == before  # the copy, notes and all, as it was
+
+    monkeypatch.setattr(Renderer, "_fix_copies", fix_copies_on_a_full_disk)
+    r = Renderer(tmp_path)
+    r.render(lab)
+    assert r.skipped == [
+        "services/plex.md (could not be archived, left as it is)",
+        "archive/services/a-beta.md (its links could not be updated, left as it is)",
+    ]
+    assert "Notes on a-beta." in copy.read_text()
+    assert sorted(p.name for p in copy.parent.iterdir()) == ["a-beta.md"]  # no temporary file left
 
 
 def test_a_page_without_notes_given_notes_while_other_pages_are_read_is_kept(tmp_path, monkeypatch):
@@ -701,6 +795,30 @@ def test_a_page_without_notes_given_notes_while_other_pages_are_read_is_kept(tmp
         not a_beta.exists()
         and "Saved just now." in (tmp_path / "archive" / "services" / "a-beta.md").read_text()
     )
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="counts open files in /proc/self/fd")
+def test_archiving_many_pages_keeps_few_files_open(tmp_path):
+    import resource
+
+    lab = Snapshot(
+        hosts=[Host(name="h", kind="docker")],
+        services=[Service(name=f"app{i:02}", host="h", kind="container") for i in range(80)],
+    )
+    Renderer(tmp_path).render(lab)
+    for page in (tmp_path / "services").glob("*.md"):
+        _with_notes(page, "Kept.")
+    lab.services = []
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (len(os.listdir("/proc/self/fd")) + 16, hard))
+    try:
+        r = Renderer(tmp_path)
+        r.render(lab)
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+    assert r.skipped == []
+    assert len(list((tmp_path / "archive" / "services").glob("*.md"))) == 80
+    assert not list((tmp_path / "services").glob("*.md"))
 
 
 def test_an_error_that_ends_the_run_leaves_no_empty_copy(tmp_path, monkeypatch):
