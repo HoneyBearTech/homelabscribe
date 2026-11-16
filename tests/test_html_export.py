@@ -271,6 +271,64 @@ def test_h3_a_page_archived_twice_is_exported_twice_with_its_own_notes(tmp_path)
     assert "Second notes." in second and "First notes." not in second
 
 
+def test_h3_an_archived_page_links_to_the_html_pages_and_shows_a_gone_page_as_text(tmp_path):
+    out, html = tmp_path / "docs", tmp_path / "html"
+
+    def on_nova(name, deps=()):
+        return Service(
+            name=name,
+            host="nova",
+            kind="container",
+            compose_project="m",
+            compose_service=name,
+            depends_on=list(deps),
+        )
+
+    lab = Snapshot(
+        hosts=[Host(name="nova", kind="docker"), Host(name="pve1", kind="proxmox-node")],
+        services=[
+            on_nova("plex", ["sonarr", "radarr", "lidarr"]),
+            on_nova("sonarr"),
+            on_nova("radarr"),
+            on_nova("lidarr"),
+            Service(name="pbs", host="pve1", kind="lxc", vmid=100),
+        ],
+    )
+    _render(out, lab)
+    for rel in ("services/plex.md", "services/sonarr.md", "hosts/pve1.md"):
+        page = out / rel
+        page.write_text(page.read_text().replace(notes.PLACEHOLDER, f"Notes on {rel}."))
+    # Plex and Sonarr go with their notes, Lidarr and pbs without: deleted. Radarr and nova stay.
+    lab.services = [s for s in lab.services if s.name == "radarr"]
+    lab.hosts = [h for h in lab.hosts if h.name == "nova"]
+    renderer = _render(out, lab)
+    htmlsite.export(out, html, renderer.generated)
+
+    def hrefs(rel: str) -> set[str]:
+        """Where the links of the HTML copy of `rel` point, each checked to be a file of the copy."""
+        found = {attrs["href"] for tag, attrs in Page((html / rel).read_text()).tags if tag == "a"}
+        for href in found:
+            assert (html / rel).parent.joinpath(href).resolve().is_file(), href
+        return found
+
+    assert hrefs("archive/services/plex.html") == {
+        "../../index.html",  # the "Overview" link of the page template
+        "../../hosts/nova.html",  # the host that stays
+        "../../services/radarr.html",  # a service that stays
+        "../../archive/services/sonarr.html",  # archived in the same run
+    }
+    assert hrefs("archive/services/sonarr.html") == {
+        "../../index.html",
+        "../../hosts/nova.html",
+        "../../archive/services/plex.html",
+    }
+    assert "<li>Depends on lidarr</li>" in (html / "archive" / "services" / "plex.html").read_text()
+    assert hrefs("archive/hosts/pve1.html") == {"../../index.html"}
+    assert "<td>pbs</td>" in (html / "archive" / "hosts" / "pve1.html").read_text()  # gone: its text
+    for name in ("plex", "sonarr"):
+        assert (html / "archive" / "services" / f"{name}.html").is_file()
+
+
 # ---- H4: notes --------------------------------------------------------------------------------
 
 

@@ -7,10 +7,12 @@ import hashlib
 import itertools
 import os
 import re
+import secrets
 import stat
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -19,7 +21,7 @@ from typing import TypeVar
 import yaml
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 
-from homelabscribe import __version__, fsutil, notes
+from homelabscribe import __version__, fsutil, notes, relink
 from homelabscribe.config import BreakGlassConfig
 from homelabscribe.enrich import image_base
 from homelabscribe.models import Host, Service, Snapshot
@@ -273,26 +275,40 @@ def _remove_own(path: Path, made: os.stat_result) -> None:
         path.unlink()
 
 
-def _archive(page: Path, folder: Path) -> Path | None:
+@dataclass
+class _Copy:
+    """An archived copy this run wrote: where, which file (`os.fstat` when it was made), the page's bytes as
+    read and the bytes written, which are those with the links fixed."""
+
+    dest: Path
+    made: os.stat_result
+    source: bytes
+    written: bytes
+
+
+def _archive(page: Path, folder: Path, first: str, fix: Callable[[bytes], bytes]) -> _Copy | None:
     """Copy `page` into `folder` under a name nothing has, then remove it. Returns the archived copy.
 
-    The first name tried is the page's own (`plex.md`), then `plex-2.md`, `plex-3.md` and so on. A name is
-    taken when anything is there, even a link that points nowhere, and whatever is there is left as it is:
-    each name is taken by creating a new file in one step, which fails if the name exists. The copy holds
-    the page's bytes and is created with the page's permissions (the umask may narrow them). The page is
-    removed only once its copy is complete and on disk, and only if it is still the file that was read,
-    unchanged. If it was saved again in the meantime, the copy is removed and None is returned: the page
-    stays for the next run. If anything fails, the error is raised, the page stays where it was and the
-    copy is removed. Just before a copy is removed, its name is checked to still hold the file this call
-    created; a file that takes the name in the instant between that check and the removal is not protected.
-    A page that is a link is copied as the text it points to, and then only the link is removed.
+    The first name tried is `first` (the name the page was expected to get), then the page's own
+    (`plex.md`), `plex-2.md`, `plex-3.md` and so on. A name is taken when anything is there, even a link that
+    points nowhere, and whatever is there is left as it is: each name is taken by creating a new file in one
+    step, which fails if the name exists. The copy holds the page's bytes as `fix` changes them and is
+    created with the page's permissions (the umask may narrow them). The page is removed only once its copy
+    is complete and on disk, and only if it is still the file that was read, unchanged. If it was saved again
+    in the meantime, the copy is removed and None is returned: the page stays for the next run. If anything
+    fails, the error is raised, the page stays where it was and the copy is removed. Just before a copy is
+    removed, its name is checked to still hold the file this call created; a file that takes the name in the
+    instant between that check and the removal is not protected. A page that is a link is copied as the text
+    it points to, and then only the link is removed.
     """
     with page.open("rb") as source:
         read = os.fstat(source.fileno())
         data = source.read()
+    written = fix(data)
     base = page.name.removesuffix(".md")
-    for n in itertools.count(1):
-        dest = folder / (page.name if n == 1 else f"{base}-{n}.md")
+    names = itertools.chain([first], (page.name if n == 1 else f"{base}-{n}.md" for n in itertools.count(1)))
+    for name in names:
+        dest = folder / name
         try:
             fd = os.open(dest, _NEW_FILE, read.st_mode & 0o777)  # never wider than the page
         except FileExistsError:
@@ -304,7 +320,7 @@ def _archive(page: Path, folder: Path) -> Path | None:
         os.close(fd)
         raise
     try:
-        _fill(fd, data)
+        _fill(fd, written)
         if not _still(page, read):  # saved again while it was copied: the copy would hold older text
             _remove_own(dest, made)
             return None
@@ -313,7 +329,68 @@ def _archive(page: Path, folder: Path) -> Path | None:
         with contextlib.suppress(OSError):  # the file this call created: never one that was there before
             _remove_own(dest, made)
         raise
-    return dest
+    return _Copy(dest, made, data, written)
+
+
+def _is_own(copy: _Copy) -> bool:
+    """True when the copy's name still holds the file `_archive` made there, with what it wrote in it."""
+    try:
+        fd = os.open(copy.dest, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    except OSError:  # gone, or a link now
+        return False
+    try:
+        f = os.fdopen(fd, "rb")
+    except BaseException:
+        os.close(fd)
+        raise
+    with f:
+        st = os.fstat(f.fileno())
+        if (st.st_dev, st.st_ino) != (copy.made.st_dev, copy.made.st_ino) or st.st_size != len(copy.written):
+            return False
+        return f.read() == copy.written
+
+
+def _refill(copy: _Copy, data: bytes) -> bool:
+    """Put `data` in place of what `_archive` wrote to `copy`, in one step. Returns False, and changes
+    nothing, when the name no longer holds that file with those bytes. Raises OSError, and then also
+    changes nothing, when the new file cannot be written.
+
+    The data goes to a temporary file in the same folder, with the copy's permissions, is synced, and then
+    takes the copy's place. The name is checked to still hold the copy just before; a file that takes the
+    name in the instant between that check and the swap is not protected.
+    """
+    if not _is_own(copy):
+        return False
+    tmp = copy.dest.parent / f".{secrets.token_hex(8)}{fsutil.TEMP_SUFFIX}"
+    fd = os.open(tmp, _NEW_FILE, stat.S_IMODE(copy.made.st_mode))
+    try:
+        _fill(fd, data)
+        if not _is_own(copy):
+            tmp.unlink()
+            return False
+        os.replace(tmp, copy.dest)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+    return True
+
+
+def _plain_file(path: Path) -> bool:
+    """True when `path` is a plain file itself, not a link to one."""
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _relinked(data: bytes, folder: str, where: relink.Where) -> bytes:
+    """The bytes of a page from `folder` with its generated links fixed (`relink`); unchanged if not UTF-8."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:  # changed since it was read as UTF-8: copied as it is
+        return data
+    return relink.relink(text, folder, where).encode("utf-8")
 
 
 class Renderer:
@@ -341,6 +418,9 @@ class Renderer:
         self.env.filters["config_vars"] = config_vars
         self.written: list[Path] = []
         self.generated: set[Path] = set()
+        self.confirmed: set[Path] = (
+            set()
+        )  # the pages of `generated` written, or found unchanged, without a skip
         self.skipped: list[Skip] = []  # `<page> (<reason>)` for each page left alone
         self.notices: list[str] = []  # one line for each page whose name was already another page's
 
@@ -598,6 +678,7 @@ class Renderer:
             return
         merged = notes.merge(replace_surrogates(content), previous)
         if merged == previous:
+            self.confirmed.add(path)
             return
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -606,6 +687,7 @@ class Renderer:
             self._skip(path, "could not be written, left as it is")
             return
         self.written.append(path)
+        self.confirmed.add(path)
 
     def _write_problem(self, path: Path) -> str | None:
         """Why nothing may be written to `path`: the page itself is a link, a folder or not a plain file.
@@ -622,42 +704,133 @@ class Renderer:
     def _read(path: Path) -> str:
         return fsutil.read_text(path)
 
-    def _sweep(self, folder: str) -> None:
-        """Pages for services that no longer exist: archive if they hold notes, else delete.
+    def _sweep(self) -> None:
+        """Pages for services and hosts that no longer exist: archive if they hold notes, else delete.
 
-        A page that cannot be read or is not UTF-8 is never deleted or archived: it is left as it is.
+        A page that cannot be read or is not UTF-8 is never deleted or archived: it is left as it is, and so
+        is a page that was saved again after it was read. First every page's fate is decided, in `services/`
+        and then `hosts/`, with the name each page to archive is expected to get in `archive/`. Then the
+        pages are archived one at a time, their generated links pointed at where each page is after this run
+        (`relink`), and last, also after an error that stops the run, a copy whose links turned out wrong (a
+        page it links to could not be archived, or got another name) is written again with the right ones,
+        if it still holds what this run wrote.
         """
-        d = self.out / folder
-        if not d.is_dir():
-            return
-        for f in sorted(d.glob("*.md")):
-            if f in self.generated:
+        fates: list[tuple[Path, str, os.stat_result | str | None]] = []
+        for folder in ("services", "hosts"):
+            d = self.out / folder
+            for f in sorted(d.glob("*.md")) if d.is_dir() else []:
+                if f not in self.generated:
+                    fates.append((f, folder, self._fate(f)))
+        expected = self._expected_names([(f, folder) for f, folder, fate in fates if fate is None])
+        live = self._live()
+        # The pages already archived (their copy), or that could not be (None), by folder and file name.
+        done: dict[tuple[str, str], _Copy | None] = {}
+
+        def where_now(folder: str, name: str) -> str | None:
+            key = (folder, f"{name}.md")
+            if key in done:
+                copy = done[key]
+                return None if copy is None else copy.dest.relative_to(self.out).as_posix()
+            return expected.get(key)
+
+        try:
+            for f, folder, fate in fates:
+                if isinstance(fate, str):
+                    self._skip(f, fate)
+                    continue
+                if fate is not None:  # no notes: deleted, if it is still the version that was read
+                    try:
+                        still = _still(f, fate)
+                    except OSError:  # such as a link to itself in its place now
+                        self._skip(f, "could not be read, left as it is")
+                        continue
+                    if not still:
+                        continue
+                    try:
+                        f.unlink()
+                    except OSError:
+                        self._skip(f, "could not be removed, left as it is")
+                        continue
+                else:
+                    done[(folder, f.name)] = None
+                    dest = self.out / "archive" / folder
+                    fix = partial(
+                        _relinked, folder=folder, where=partial(self._where, live=live, now=where_now)
+                    )
+                    try:
+                        dest.mkdir(parents=True, exist_ok=True)
+                        copy = _archive(f, dest, Path(expected[(folder, f.name)]).name, fix)
+                    except OSError:  # no room, no permission, no folder: the page and its notes stay
+                        self._skip(f, "could not be archived, left as it is")
+                        continue
+                    if copy is None:  # saved while it was copied: left as it is, for the next run
+                        continue
+                    done[(folder, f.name)] = copy
+                self.written.append(f)
+        finally:  # also after an error: no copy keeps a link to a copy that was not made
+            self._fix_copies(done, live)
+
+    def _fate(self, page: Path) -> os.stat_result | str | None:
+        """What happens to a page that was not written in this run: None when it holds notes (it is archived),
+        the version that was read when it does not (it is deleted), or why it is left as it is."""
+        try:
+            text, version = fsutil.read_text_version(page)
+        except UnicodeDecodeError:
+            return "not UTF-8, left as it is"
+        except OSError:
+            return "could not be read, left as it is"
+        kept = notes.extract(text)
+        return None if kept and kept.strip() != notes.PLACEHOLDER else version
+
+    def _expected_names(self, pages: list[tuple[Path, str]]) -> dict[tuple[str, str], str]:
+        """The name below the output folder that each page (by folder and file name) is expected to get in
+        `archive/<folder>/`: the first that nothing has there and no page before it gets, as `_archive` tries
+        them."""
+        names: dict[tuple[str, str], str] = {}
+        given: set[Path] = set()
+        for page, folder in pages:
+            base = page.name.removesuffix(".md")
+            for n in itertools.count(1):
+                dest = self.out / "archive" / folder / (page.name if n == 1 else f"{base}-{n}.md")
+                if dest not in given and not os.path.lexists(dest):
+                    break
+            given.add(dest)
+            names[(folder, page.name)] = dest.relative_to(self.out).as_posix()
+        return names
+
+    def _fix_copies(self, done: dict[tuple[str, str], _Copy | None], live: set[Path]) -> None:
+        """Write again each copy whose links point at a copy that was not made, or was made under another
+        name, now that every page's fate is known. A copy that no longer holds what this run wrote is left
+        alone."""
+
+        def where_done(folder: str, name: str) -> str | None:
+            copy = done.get((folder, f"{name}.md"))
+            return None if copy is None else copy.dest.relative_to(self.out).as_posix()
+
+        where = partial(self._where, live=live, now=where_done)
+        for (folder, _), copy in done.items():
+            if copy is None:
+                continue
+            data = _relinked(copy.source, folder, where)
+            if data == copy.written:
                 continue
             try:
-                kept = notes.extract(self._read(f))
-            except UnicodeDecodeError:
-                self._skip(f, "not UTF-8, left as it is")
-                continue
+                _refill(copy, data)
             except OSError:
-                self._skip(f, "could not be read, left as it is")
-                continue
-            if kept and kept.strip() != notes.PLACEHOLDER:
-                dest = self.out / "archive" / folder
-                try:
-                    dest.mkdir(parents=True, exist_ok=True)
-                    archived = _archive(f, dest)
-                except OSError:  # no room, no permission, no folder: the page and its notes stay
-                    self._skip(f, "could not be archived, left as it is")
-                    continue
-                if archived is None:  # saved while it was copied: left as it is, for the next run
-                    continue
-            else:
-                try:
-                    f.unlink()
-                except OSError:
-                    self._skip(f, "could not be removed, left as it is")
-                    continue
-            self.written.append(f)
+                self._skip(copy.dest, "its links could not be updated, left as it is")
+
+    def _live(self) -> set[Path]:
+        """The service and host pages written, or found unchanged, in this run without a skip, that are on
+        disk as plain files."""
+        folders = {self.out / "services", self.out / "hosts"}
+        return {p for p in self.confirmed if p.parent in folders and _plain_file(p)}
+
+    def _where(self, folder: str, name: str, *, live: set[Path], now: relink.Where) -> str | None:
+        """Where the page `<folder>/<name>.md` is after this run, below the output folder: there, when it is
+        `live`; else where `now` says its copy in `archive/` is, or nowhere (None)."""
+        if self.out / folder / f"{name}.md" in live:
+            return f"{folder}/{name}.md"
+        return now(folder, name)
 
     def render(
         self,
@@ -760,6 +933,5 @@ class Renderer:
                 ),
             )
 
-        self._sweep("services")
-        self._sweep("hosts")
+        self._sweep()
         return self.written

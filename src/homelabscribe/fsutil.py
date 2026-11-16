@@ -77,9 +77,16 @@ def read_text(path: Path) -> str:
     opened, as that could block) and UnicodeDecodeError for any other encoding. UTF-16 without a byte-order
     mark would decode as UTF-8 with a NUL after every letter, so a NUL counts as another encoding.
     """
+    return read_text_version(path)[0]
+
+
+def read_text_version(path: Path) -> tuple[str, os.stat_result]:
+    """`read_text`, and which file, in which version, the text was read from (`os.fstat` of the open file)."""
     if not stat.S_ISREG(os.stat(path).st_mode):
         raise OSError(errno.EINVAL, "not a regular file")
-    text = path.read_bytes().decode("utf-8")
+    with path.open("rb") as f:
+        version = os.fstat(f.fileno())
+        text = f.read().decode("utf-8")
     if "\0" in text:
         raise UnicodeDecodeError("utf-8", b"\0", 0, 1, "NUL character")
-    return text
+    return text, version

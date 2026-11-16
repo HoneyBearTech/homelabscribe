@@ -20,6 +20,7 @@ from homelabscribe.collectors.docker import parse_container, parse_depends_on, p
 from homelabscribe.collectors.proxmox import parse_guest
 from homelabscribe.htmlsite import page_html
 from homelabscribe.redact import clean_labels, env_names
+from homelabscribe.relink import relink
 from homelabscribe.renderer import tag_text, yaml_text
 
 text = st.text(max_size=40)
@@ -320,3 +321,141 @@ def test_front_matter_tag_reads_back_as_the_same_text_in_the_tags_list(category)
     assert tag and not _LONE_SURROGATE.search(tag)
     for loader in LOADERS:
         assert yaml.load(f"tags: [homelab, {yaml_text(tag)}]", Loader=loader) == {"tags": ["homelab", tag]}
+
+
+link_pieces = st.sampled_from(
+    [
+        "| Runs on | ",
+        "| Is the Docker host | ",
+        "| Runs as | VM ",
+        "| Runs as | LXC ",
+        " on ",
+        "- Depends on ",
+        "- Used by ",
+        "| ",
+        " |",
+        " | running |  | x |",
+        "[media](../hosts/media.md)",
+        "[A [beta]](../services/a-beta.md)",
+        "[Plex](plex.md)",
+        "[a](../../hosts/media.md)",
+        "[",
+        "]",
+        "(",
+        ")",
+        "](",
+        "../hosts/",
+        "../services/",
+        "../../",
+        "media",
+        "a-beta",
+        "x-2",
+        "Plex",
+        "a" * 201,
+        ".md",
+        ".md)",
+        "\\",
+        "|",
+        "\n",
+        "\r\n",
+        "\r",
+        notes.START,
+        notes.END,
+        "```",
+        "~~~",
+        "\\]",
+        "\\",
+        "\\|",
+    ]
+)
+link_folders = st.sampled_from(["services", "hosts"])
+link_text = st.lists(link_pieces | text, max_size=4).map("".join)
+link_names = st.sampled_from(["media", "a-beta", "plex", "x-2", "a" * 201, "Plex", "a--b"])
+# The lines the templates write links on, with any text and name in them, each with a line ending.
+link_lines = st.builds(
+    lambda form, a, x, b, y, end: form.format(a=a, x=x, b=b, y=y) + end,
+    st.sampled_from(
+        [
+            "| Runs on | [{a}](../hosts/{x}.md) |",
+            "| Is the Docker host | [{a}](../hosts/{x}.md) |",
+            "- Depends on [{a}]({x}.md)",
+            "- Used by [{a}]({x}.md)",
+            "| Runs as | VM [{a}](../services/{x}.md) on [{b}](../hosts/{y}.md) |",
+            "| [{a}](../services/{x}.md) | {b} | {y} |",
+        ]
+    ),
+    link_text,
+    link_names,
+    link_text,
+    link_names,
+    st.sampled_from(["\n", "\r\n"]),
+)
+link_targets = st.dictionaries(
+    st.tuples(link_folders, link_names),
+    st.sampled_from(
+        ["hosts/media.md", "services/plex.md", "archive/services/a-beta-2.md", "archive/hosts/x.md"]
+    ),
+    max_size=6,
+)
+
+
+# Lines that open, close or fence off the places where the templates write links.
+link_frame = st.sampled_from(
+    [
+        "| | |\n| --- | --- |\n",
+        "## Connections\n\n",
+        "## How to restart\n",
+        "## Running here\n\n| Service | Status | Address | What it does |\n| --- | --- | --- | --- |\n",
+        "```\n",
+        "~~~~\n",
+        "\n",
+        "\r\n",
+    ]
+)
+link_page = st.lists(link_lines | link_frame | link_pieces | text, max_size=24).map("".join)
+link_lines_only = st.lists(link_lines | link_frame, max_size=8).map("".join)
+# A page in the shape a template gives it, with any lines in each place.
+templated_page = st.builds(
+    lambda kind, facts, middle, links, end, mine: (
+        f"---\ntitle: x\n---\n# x\n\n> d\n\n| | |\n| --- | --- |\n{facts}\n{middle}"
+        + (
+            f"## Connections\n\n{links}\n## How to restart\n\nx\n"
+            if kind == "services"
+            else "## Running here\n\n| Service | Status | Address | What it does |\n"
+            f"| --- | --- | --- | --- |\n{links}"
+        )
+        + f"{end}\n## Notes\n\n{notes.START}\n{mine}\n{notes.END}\n"
+    ),
+    link_folders,
+    link_lines_only,
+    link_page,
+    link_lines_only,
+    link_page,
+    link_page,
+)
+
+
+@PROFILE
+@given(
+    link_page
+    | st.tuples(link_page, link_page).map(lambda ab: f"{ab[0]}{notes.START}\n{ab[1]}")
+    | templated_page,
+    link_folders,
+    link_targets,
+)
+def test_relink_never_fails_keeps_the_notes_and_changes_nothing_twice(page, folder, targets):
+    """Whatever the page holds, fixing its links never fails, leaves everything from the notes start marker
+    on and every line ending as it was, and finds nothing more to fix in its own result."""
+
+    def where(target_folder, name):
+        return targets.get((target_folder, name))
+
+    out = relink(page, folder, where)
+    head, start, rest = page.partition(notes.START)
+    if not start:
+        assert out == page
+    assert out.endswith(start + rest)
+    assert [line[-1:] == "\r" for line in out.split("\n")] == [line[-1:] == "\r" for line in page.split("\n")]
+    assert out.count("\r") == page.count("\r")
+    assert relink(out, folder, where) == out
+    out.encode("utf-8")  # writable to a file
