@@ -737,7 +737,12 @@ class Renderer:
                 self._skip(f, fate)
                 continue
             if fate is not None:  # no notes: deleted, if it is still the version that was read
-                if not _still(f, fate):
+                try:
+                    still = _still(f, fate)
+                except OSError:  # such as a link to itself in its place now
+                    self._skip(f, "could not be read, left as it is")
+                    continue
+                if not still:
                     continue
                 try:
                     f.unlink()

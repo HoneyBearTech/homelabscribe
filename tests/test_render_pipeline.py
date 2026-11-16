@@ -937,6 +937,32 @@ def test_a_page_without_notes_given_notes_while_other_pages_are_read_is_kept(tmp
     )
 
 
+def test_a_page_without_notes_that_cannot_be_checked_again_is_skipped_and_the_rest_archived(
+    tmp_path, monkeypatch
+):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    _with_notes(tmp_path / "hosts" / "media.md", "Notes on media.")
+    lab.hosts = [h for h in lab.hosts if h.name != "media"]
+    a_beta = tmp_path / "services" / "a-beta.md"
+    a_beta.write_text(a_beta.read_text().replace("Notes on a-beta.", notes.PLACEHOLDER))  # no notes: deleted
+    real_read = fsutil.read_text_version
+
+    def read(path):
+        if path.name == "plex.md":  # read after A [beta]: a link to itself takes its place meanwhile
+            a_beta.unlink()
+            a_beta.symlink_to(a_beta.name)
+        return real_read(path)
+
+    monkeypatch.setattr(fsutil, "read_text_version", read)
+    r = Renderer(tmp_path)
+    r.render(lab)
+    assert r.skipped == ["services/a-beta.md (could not be read, left as it is)"]
+    assert a_beta.is_symlink() and os.readlink(a_beta) == "a-beta.md"
+    archive = tmp_path / "archive"
+    assert "Notes on plex." in (archive / "services" / "plex.md").read_text()
+    assert "Notes on media." in (archive / "hosts" / "media.md").read_text()  # the pages after it too
+
+
 @pytest.mark.skipif(not Path("/proc/self/fd").is_dir(), reason="counts open files in /proc/self/fd")
 def test_archiving_many_pages_keeps_few_files_open(tmp_path):
     import resource
