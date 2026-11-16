@@ -694,23 +694,54 @@ def test_a_line_whose_link_text_is_not_one_piece_is_left_as_written(tmp_path, ti
 
 def test_generated_looking_lines_outside_their_place_or_in_a_code_block_are_left_alone(tmp_path):
     example = "```\n| | |\n| --- | --- |\n| Runs on | [media](../hosts/media.md) |\n```"
-    proxmox_notes = (
-        f"Set up like this:\n\n{example}\n\n"
-        "| | |\n| --- | --- |\n| Runs on | [media](../hosts/media.md) |\n\n"
-        "## Connections\n\n- Depends on [Plex](plex.md)"
-    )
+    proxmox_notes = f"Set up like this:\n\n{example}\n\n## Connections\n\n- Depends on [Plex](plex.md)"
     lab = _linked_lab()
     vm = next(s for s in lab.services if s.name == "docker-vm")
     vm.description, vm.notes, vm.depends_on = f"A fenced example:\n{example}", proxmox_notes, []
     data = _remove(tmp_path, ["services/docker-vm.md"], ["docker-vm"], lab=lab)
     before = data["services/docker-vm.md"]
-    assert before.count(b"| Runs on | [media](../hosts/media.md) |") == 3
+    assert before.count(b"| Runs on | [media](../hosts/media.md) |") == 2
     assert (tmp_path / "archive" / "services" / "docker-vm.md").read_bytes() == _swapped(
         before,
         ("| Runs on | [pve](../hosts/pve.md) |", "| Runs on | [pve](../../hosts/pve.md) |"),
         (
             "| Is the Docker host | [media](../hosts/media.md) |",
             "| Is the Docker host | [media](../../hosts/media.md) |",
+        ),
+    )
+
+
+def test_a_facts_table_in_a_description_leaves_the_page_as_written(tmp_path):
+    fake = "Example:\n\n| | |\n| --- | --- |\n| Runs on | [media](../hosts/media.md) |"
+    lab = _linked_lab()
+    next(s for s in lab.services if s.name == "plex").description = fake
+    data = _remove(tmp_path, ["services/plex.md"], ["plex"], lab=lab)
+    assert data["services/plex.md"].count(b"| Runs on | [media](../hosts/media.md) |") == 2  # fake and real
+    # Which table is the real one cannot be told for sure: nothing on the page is changed, not even below.
+    assert (tmp_path / "archive" / "services" / "plex.md").read_bytes() == data["services/plex.md"]
+
+
+def test_a_connections_list_or_running_here_table_that_is_there_twice_is_left_as_written(tmp_path):
+    lab = _linked_lab()
+    plex = next(s for s in lab.services if s.name == "plex")
+    plex.description = "Wired like this:\n\n## Connections\n\n- Depends on [A [beta]](a-beta.md)"
+    running = "## Running here\n\n| Service | Status | Address | What it does |\n| --- | --- | --- | --- |"
+    next(
+        s for s in lab.services if s.name == "overseerr"
+    ).description = f"x\n\n{running}\n| [Plex](../services/plex.md) | x"
+    data = _remove(
+        tmp_path, ["services/plex.md", "hosts/media.md"], ["plex", "sonarr", "overseerr"], ["media"], lab=lab
+    )
+    archive = tmp_path / "archive"
+    assert (archive / "services" / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],  # the facts table is fixed; both lists stay as written
+        ("| Runs on | [media](../hosts/media.md) |", "| Runs on | [media](../../archive/hosts/media.md) |"),
+    )
+    assert (archive / "hosts" / "media.md").read_bytes() == _swapped(
+        data["hosts/media.md"],  # "Runs as" is fixed; both tables stay as written
+        (
+            "| Runs as | VM [Docker VM](../services/docker-vm.md) on [pve](../hosts/pve.md) |",
+            "| Runs as | VM [Docker VM](../../services/docker-vm.md) on [pve](../../hosts/pve.md) |",
         ),
     )
 

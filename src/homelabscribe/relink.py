@@ -93,25 +93,29 @@ def _fenced(lines: list[str]) -> list[bool]:
 def _places(lines: list[str], folder: str) -> dict[int, str]:
     """The lines (by number) in the places the templates write generated links, and which place each is in.
 
-    Every page starts with a table of facts (a `| | |` line, then `| --- | --- |`), the first one on the
-    page; its rows are the lines after it up to a blank line. On a service page, the "Depends on" and "Used
-    by" lines are the list after the first `## Connections` heading and a blank line below that table, up to
-    a blank line and before `## How to restart`. On a host page, the "Running here" table is the rows after
-    the first `## Running here` heading, a blank line and the table's two header lines below the facts
-    table, up to a blank line. A line in a fenced code block is in none of these places and opens or ends
-    none of them. (A title with a line break goes on over two lines; the lines after it stay in place.)
+    Every page starts with a table of facts (a `| | |` line, then `| --- | --- |`); its rows are the lines
+    after it up to a blank line. On a service page, the "Depends on" and "Used by" lines are the list after
+    the `## Connections` heading and a blank line, below that table and above the first `## How to restart`
+    after it, up to a blank line. On a host page, the "Running here" table is the rows after the
+    `## Running here` heading, a blank line and the table's two header lines, below the facts table, up to a
+    blank line. Text from the lab (a description, a Proxmox note) can hold lines like these, so a place is
+    never guessed: one whose opening lines are on the page more than once is none of these places, and when
+    the facts table is not there exactly once, no line is. A line in a fenced code block is in none of these
+    places and opens or ends none of them. (A title with a line break goes on over two lines; the lines after
+    it stay in place.)
     """
     fenced = _fenced(lines)
 
     def free(i: int) -> bool:
         return 0 <= i < len(lines) and not fenced[i]
 
-    def find(block: list[str], start: int, stop: int | None = None) -> int | None:
-        end = len(lines) if stop is None else stop
-        for i in range(start, end):
-            if all(free(i + k) and lines[i + k] == line for k, line in enumerate(block)):
-                return i
-        return None
+    def at(block: list[str], i: int) -> bool:
+        return all(free(i + k) and lines[i + k] == line for k, line in enumerate(block))
+
+    def only(block: list[str]) -> int | None:
+        """Where the lines of `block` are on the page, outside fenced code, if they are there exactly once."""
+        found = [i for i in range(len(lines)) if at(block, i)]
+        return found[0] if len(found) == 1 else None
 
     def block(start: int) -> range:
         end = start
@@ -120,19 +124,19 @@ def _places(lines: list[str], folder: str) -> dict[int, str]:
         return range(start, end)
 
     places: dict[int, str] = {}
-    top = find(_FACTS, 0)
+    top = only(_FACTS)
     if top is None:
         return places
     facts = block(top + len(_FACTS))
     places.update(dict.fromkeys(facts, "service facts" if folder == "services" else "host facts"))
     if folder == "services":
-        stop = find(["## How to restart"], facts.stop)
-        heading = None if stop is None else find(["## Connections", ""], facts.stop, stop)
-        if heading is not None:
+        stop = next((i for i in range(facts.stop, len(lines)) if at(["## How to restart"], i)), None)
+        heading = only(["## Connections", ""])
+        if stop is not None and heading is not None and facts.stop <= heading < stop:
             places.update((i, "connections") for i in block(heading + 2) if i < stop)
     elif folder == "hosts":
-        heading = find(_RUNNING, facts.stop)
-        if heading is not None:
+        heading = only(_RUNNING)
+        if heading is not None and heading >= facts.stop:
             places.update(dict.fromkeys(block(heading + len(_RUNNING)), "running here"))
     return places
 
