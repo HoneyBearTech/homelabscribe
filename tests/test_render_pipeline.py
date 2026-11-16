@@ -825,6 +825,33 @@ def test_a_copy_changed_before_its_links_are_fixed_is_left_alone(tmp_path, monke
     assert sorted(p.name for p in copy.parent.iterdir()) == ([] if change == "removed" else ["a-beta.md"])
 
 
+def test_a_copy_changed_while_its_new_version_is_written_is_left_alone(tmp_path, monkeypatch):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+    copy = tmp_path / "archive" / "services" / "a-beta.md"
+    _on_fill(monkeypatch, b"Notes on plex.", _no_space)
+    checks = []
+    real_is_own = renderer_module._is_own
+
+    def is_own_until_written(c):
+        checks.append(c.dest)
+        return real_is_own(c) and len(checks) == 1  # changed after the first check, before the swap
+
+    monkeypatch.setattr(renderer_module, "_is_own", is_own_until_written)
+    before = None
+
+    def remember(self, *args):
+        nonlocal before
+        before = copy.read_bytes()
+        real_fix(self, *args)
+
+    real_fix = Renderer._fix_copies
+    monkeypatch.setattr(Renderer, "_fix_copies", remember)
+    Renderer(tmp_path).render(lab)
+    assert checks == [copy, copy]
+    assert copy.read_bytes() == before  # not replaced
+    assert sorted(p.name for p in copy.parent.iterdir()) == ["a-beta.md"]  # no temporary file left
+
+
 def test_a_copy_whose_links_cannot_be_fixed_is_kept_and_reported(tmp_path, monkeypatch):
     lab = _plex_and_a_beta_with_notes(tmp_path)
     copy = tmp_path / "archive" / "services" / "a-beta.md"
