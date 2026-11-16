@@ -361,6 +361,8 @@ link_pieces = st.sampled_from(
         "\r",
         notes.START,
         notes.END,
+        "```",
+        "~~~",
         "\\]",
         "\\",
         "\\|",
@@ -397,12 +399,47 @@ link_targets = st.dictionaries(
 )
 
 
-link_page = st.lists(link_lines | link_pieces | text, max_size=24).map("".join)
+# Lines that open, close or fence off the places where the templates write links.
+link_frame = st.sampled_from(
+    [
+        "| | |\n| --- | --- |\n",
+        "## Connections\n\n",
+        "## How to restart\n",
+        "## Running here\n\n| Service | Status | Address | What it does |\n| --- | --- | --- | --- |\n",
+        "```\n",
+        "~~~~\n",
+        "\n",
+        "\r\n",
+    ]
+)
+link_page = st.lists(link_lines | link_frame | link_pieces | text, max_size=24).map("".join)
+link_lines_only = st.lists(link_lines | link_frame, max_size=8).map("".join)
+# A page in the shape a template gives it, with any lines in each place.
+templated_page = st.builds(
+    lambda kind, facts, middle, links, end, mine: (
+        f"---\ntitle: x\n---\n# x\n\n> d\n\n| | |\n| --- | --- |\n{facts}\n{middle}"
+        + (
+            f"## Connections\n\n{links}\n## How to restart\n\nx\n"
+            if kind == "services"
+            else "## Running here\n\n| Service | Status | Address | What it does |\n"
+            f"| --- | --- | --- | --- |\n{links}"
+        )
+        + f"{end}\n## Notes\n\n{notes.START}\n{mine}\n{notes.END}\n"
+    ),
+    link_folders,
+    link_lines_only,
+    link_page,
+    link_lines_only,
+    link_page,
+    link_page,
+)
 
 
 @PROFILE
 @given(
-    link_page | st.tuples(link_page, link_page).map(lambda ab: f"{ab[0]}{notes.START}\n{ab[1]}"),
+    link_page
+    | st.tuples(link_page, link_page).map(lambda ab: f"{ab[0]}{notes.START}\n{ab[1]}")
+    | templated_page,
     link_folders,
     link_targets,
 )

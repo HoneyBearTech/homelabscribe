@@ -674,6 +674,47 @@ def test_a_title_with_an_escaped_bracket_is_read_as_markdown_reads_it(tmp_path):
     )
 
 
+@pytest.mark.parametrize("title", ["A | b", "A\nb"])
+def test_a_line_whose_link_text_is_not_one_piece_is_left_as_written(tmp_path, title):
+    noted = ["services/plex.md", "hosts/media.md"]
+    data = _remove(tmp_path, noted, ["plex", "sonarr", "overseerr"], ["media"], lab=_titled(title))
+    plex = (tmp_path / "archive" / "services" / "plex.md").read_bytes()
+    media = (tmp_path / "archive" / "hosts" / "media.md").read_bytes()
+    assert b"](../../archive/hosts/media.md)" in plex and b"- Used by Overseerr\n" in plex
+    assert b"| [Plex](../../archive/services/plex.md) |" in media and b"| Overseerr |" in media
+    row = f"| [{title}](../services/a-b.md) |".encode()
+    assert row in data["hosts/media.md"] and row in media  # a `|` or a line break in a table row: as written
+    item = f"- Depends on [{title}](a-b.md)\n".encode()
+    assert item in data["services/plex.md"]
+    if "\n" in title:
+        assert item in plex  # a link over two lines: as written
+    else:
+        assert f"- Depends on {title}\n".encode() in plex  # a `|` outside a table is just text
+
+
+def test_generated_looking_lines_outside_their_place_or_in_a_code_block_are_left_alone(tmp_path):
+    example = "```\n| | |\n| --- | --- |\n| Runs on | [media](../hosts/media.md) |\n```"
+    proxmox_notes = (
+        f"Set up like this:\n\n{example}\n\n"
+        "| | |\n| --- | --- |\n| Runs on | [media](../hosts/media.md) |\n\n"
+        "## Connections\n\n- Depends on [Plex](plex.md)"
+    )
+    lab = _linked_lab()
+    vm = next(s for s in lab.services if s.name == "docker-vm")
+    vm.description, vm.notes, vm.depends_on = f"A fenced example:\n{example}", proxmox_notes, []
+    data = _remove(tmp_path, ["services/docker-vm.md"], ["docker-vm"], lab=lab)
+    before = data["services/docker-vm.md"]
+    assert before.count(b"| Runs on | [media](../hosts/media.md) |") == 3
+    assert (tmp_path / "archive" / "services" / "docker-vm.md").read_bytes() == _swapped(
+        before,
+        ("| Runs on | [pve](../hosts/pve.md) |", "| Runs on | [pve](../../hosts/pve.md) |"),
+        (
+            "| Is the Docker host | [media](../hosts/media.md) |",
+            "| Is the Docker host | [media](../../hosts/media.md) |",
+        ),
+    )
+
+
 def _plex_and_a_beta_with_notes(out) -> Snapshot:
     """The linked lab rendered, Plex's and A [beta]'s pages given notes; returns the lab without them."""
     lab = _linked_lab()

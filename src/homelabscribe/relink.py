@@ -3,7 +3,8 @@
 A page in `services/` or `hosts/` links to other pages with paths relative to its folder: `../hosts/media.md`,
 `../services/plex.md` and `sonarr.md`. Once the page is moved to `archive/services/` or `archive/hosts/`,
 those paths point inside `archive/`. `relink` rewrites only the links the templates write, on the lines
-they write them on, and only before the notes block; everything else, line endings included, stays as it is.
+they write them on, in the places they write those lines, and only before the notes block; everything else,
+line endings included, stays as it is.
 """
 
 from __future__ import annotations
@@ -30,31 +31,114 @@ def _link(group: str, folder: str | None, text: str = _CELL) -> str:
     return rf"\[(?P<{group}>{text})\]\({where}(?P<{group}_name>{_NAME})\.md\)"
 
 
-# The lines with generated links, by the folder the page is in: how each line is written, and the folder of
-# each link's page, in the order of the links.
+# The lines with generated links, by the place on the page they are in: how each line is written, and the
+# folder of each link's page, in the order of the links.
 _LINES: dict[str, list[tuple[re.Pattern[str], tuple[str, ...]]]] = {
-    "services": [
+    "service facts": [
         (re.compile(rf"\| Runs on \| {_link('a', 'hosts')} \|"), ("hosts",)),
         (re.compile(rf"\| Is the Docker host \| {_link('a', 'hosts')} \|"), ("hosts",)),
+    ],
+    "connections": [
         (re.compile(rf"- Depends on {_link('a', None, _TEXT)}"), ("services",)),
         (re.compile(rf"- Used by {_link('a', None, _TEXT)}"), ("services",)),
     ],
-    "hosts": [
+    "host facts": [
         (
             re.compile(rf"\| Runs as \| (?:VM|LXC) {_link('a', 'services')} on {_link('b', 'hosts')} \|"),
             ("services", "hosts"),
         ),
-        (re.compile(rf"\| {_link('a', 'services')} \|.*"), ("services",)),
     ],
+    "running here": [(re.compile(rf"\| {_link('a', 'services')} \|.*"), ("services",))],
 }
+
+# The lines that open and close the places, as the templates write them.
+_FACTS = ["| | |", "| --- | --- |"]
+_RUNNING = [
+    "## Running here",
+    "",
+    "| Service | Status | Address | What it does |",
+    "| --- | --- | --- | --- |",
+]
+_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 
 Where = Callable[[str, str], str | None]
 """Where the page `<folder>/<name>.md` is now, below the output folder (`hosts/media.md`,
 `archive/services/plex-2.md`), or None when it is nowhere."""
 
 
-def _fix_line(line: str, folder: str, where: Where) -> str:
-    for pattern, folders in _LINES.get(folder, ()):
+def _fenced(lines: list[str]) -> list[bool]:
+    """For each line, whether it is part of a fenced code block (its fences included), as Markdown reads it
+    at the top level of the page: from a line of three or more backticks or tildes (up to three spaces
+    before them; after backticks, no backtick) to a line of at least as many of the same, or the end."""
+    inside: list[bool] = []
+    fence = ""
+    for line in lines:
+        m = _FENCE.match(line)
+        if not fence:
+            if m and not (m.group(1)[0] == "`" and "`" in line[m.end() :]):
+                fence = m.group(1)
+            inside.append(bool(fence))
+            continue
+        inside.append(True)
+        if (
+            m
+            and m.group(1)[0] == fence[0]
+            and len(m.group(1)) >= len(fence)
+            and not line[m.end() :].strip(" \t")
+        ):
+            fence = ""
+    return inside
+
+
+def _places(lines: list[str], folder: str) -> dict[int, str]:
+    """The lines (by number) in the places the templates write generated links, and which place each is in.
+
+    Every page starts with a table of facts (a `| | |` line, then `| --- | --- |`), the first one on the
+    page; its rows are the lines after it up to a blank line. On a service page, the "Depends on" and "Used
+    by" lines are the list after the first `## Connections` heading and a blank line below that table, up to
+    a blank line and before `## How to restart`. On a host page, the "Running here" table is the rows after
+    the first `## Running here` heading, a blank line and the table's two header lines below the facts
+    table, up to a blank line. A line in a fenced code block is in none of these places and opens or ends
+    none of them. (A title with a line break goes on over two lines; the lines after it stay in place.)
+    """
+    fenced = _fenced(lines)
+
+    def free(i: int) -> bool:
+        return 0 <= i < len(lines) and not fenced[i]
+
+    def find(block: list[str], start: int, stop: int | None = None) -> int | None:
+        end = len(lines) if stop is None else stop
+        for i in range(start, end):
+            if all(free(i + k) and lines[i + k] == line for k, line in enumerate(block)):
+                return i
+        return None
+
+    def block(start: int) -> range:
+        end = start
+        while free(end) and lines[end].strip(" \t"):
+            end += 1
+        return range(start, end)
+
+    places: dict[int, str] = {}
+    top = find(_FACTS, 0)
+    if top is None:
+        return places
+    facts = block(top + len(_FACTS))
+    places.update(dict.fromkeys(facts, "service facts" if folder == "services" else "host facts"))
+    if folder == "services":
+        stop = find(["## How to restart"], facts.stop)
+        heading = None if stop is None else find(["## Connections", ""], facts.stop, stop)
+        if heading is not None:
+            places.update((i, "connections") for i in block(heading + 2) if i < stop)
+    elif folder == "hosts":
+        heading = find(_RUNNING, facts.stop)
+        if heading is not None:
+            places.update(dict.fromkeys(block(heading + len(_RUNNING)), "running here"))
+    return places
+
+
+def _fix_line(line: str, place: str, where: Where) -> str:
+    for pattern, folders in _LINES[place]:
         m = pattern.fullmatch(line)
         if m is None:
             continue
@@ -76,16 +160,18 @@ def relink(text: str, folder: str, where: Where) -> str:
     Only the part before the first notes start marker is looked at (the split `notes` makes); from the
     marker on, nothing changes, and a page without one is returned as it is. In that part, a link is
     changed only on a line written the way a template writes it ("Runs on", "Is the Docker host",
-    "Depends on", "Used by", "Runs as" and the rows of a host's table) and only when it names a page
-    the way HomelabScribe names one. Such a link then points at `../../<where it is now>`, or, when its
-    page is nowhere, becomes its text, exactly as written between the brackets. Line endings (`\\n` or
+    "Depends on", "Used by", "Runs as" and the rows of a host's table), in the place the template writes
+    that line (`_places`, never in a fenced code block), and only when it names a page the way HomelabScribe
+    names one. Such a link then points at `../../<where it is now>`, or, when its page is nowhere, becomes
+    its text, exactly as written between the brackets. A line whose link text Markdown would not read as
+    one piece (a title with a line break, or with a `|` in a table) is left as it is. Line endings (`\\n` or
     `\\r\\n`) stay as they were. A link changed once never matches again, so a second call changes nothing.
     """
     head, start, rest = text.partition(notes.START)
     if not start:
         return text
     lines = head.split("\n")
-    for i, line in enumerate(lines):
-        body, cr = (line[:-1], "\r") if line.endswith("\r") else (line, "")
-        lines[i] = _fix_line(body, folder, where) + cr
+    bodies = [line.removesuffix("\r") for line in lines]
+    for i, place in _places(bodies, folder).items():
+        lines[i] = _fix_line(bodies[i], place, where) + lines[i][len(bodies[i]) :]
     return "\n".join(lines) + start + rest
