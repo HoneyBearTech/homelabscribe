@@ -711,8 +711,9 @@ class Renderer:
         is a page that was saved again after it was read. First every page's fate is decided, in `services/`
         and then `hosts/`, with the name each page to archive is expected to get in `archive/`. Then the
         pages are archived one at a time, their generated links pointed at where each page is after this run
-        (`relink`), and last, a copy whose links turned out wrong (a page it links to could not be archived,
-        or got another name) is written again with the right ones, if it still holds what this run wrote.
+        (`relink`), and last, also after an error that stops the run, a copy whose links turned out wrong (a
+        page it links to could not be archived, or got another name) is written again with the right ones,
+        if it still holds what this run wrote.
         """
         fates: list[tuple[Path, str, os.stat_result | str | None]] = []
         for folder in ("services", "hosts"):
@@ -732,38 +733,42 @@ class Renderer:
                 return None if copy is None else copy.dest.relative_to(self.out).as_posix()
             return expected.get(key)
 
-        for f, folder, fate in fates:
-            if isinstance(fate, str):
-                self._skip(f, fate)
-                continue
-            if fate is not None:  # no notes: deleted, if it is still the version that was read
-                try:
-                    still = _still(f, fate)
-                except OSError:  # such as a link to itself in its place now
-                    self._skip(f, "could not be read, left as it is")
+        try:
+            for f, folder, fate in fates:
+                if isinstance(fate, str):
+                    self._skip(f, fate)
                     continue
-                if not still:
-                    continue
-                try:
-                    f.unlink()
-                except OSError:
-                    self._skip(f, "could not be removed, left as it is")
-                    continue
-            else:
-                done[(folder, f.name)] = None
-                dest = self.out / "archive" / folder
-                fix = partial(_relinked, folder=folder, where=partial(self._where, live=live, now=where_now))
-                try:
-                    dest.mkdir(parents=True, exist_ok=True)
-                    copy = _archive(f, dest, Path(expected[(folder, f.name)]).name, fix)
-                except OSError:  # no room, no permission, no folder: the page and its notes stay
-                    self._skip(f, "could not be archived, left as it is")
-                    continue
-                if copy is None:  # saved while it was copied: left as it is, for the next run
-                    continue
-                done[(folder, f.name)] = copy
-            self.written.append(f)
-        self._fix_copies(done, live)
+                if fate is not None:  # no notes: deleted, if it is still the version that was read
+                    try:
+                        still = _still(f, fate)
+                    except OSError:  # such as a link to itself in its place now
+                        self._skip(f, "could not be read, left as it is")
+                        continue
+                    if not still:
+                        continue
+                    try:
+                        f.unlink()
+                    except OSError:
+                        self._skip(f, "could not be removed, left as it is")
+                        continue
+                else:
+                    done[(folder, f.name)] = None
+                    dest = self.out / "archive" / folder
+                    fix = partial(
+                        _relinked, folder=folder, where=partial(self._where, live=live, now=where_now)
+                    )
+                    try:
+                        dest.mkdir(parents=True, exist_ok=True)
+                        copy = _archive(f, dest, Path(expected[(folder, f.name)]).name, fix)
+                    except OSError:  # no room, no permission, no folder: the page and its notes stay
+                        self._skip(f, "could not be archived, left as it is")
+                        continue
+                    if copy is None:  # saved while it was copied: left as it is, for the next run
+                        continue
+                    done[(folder, f.name)] = copy
+                self.written.append(f)
+        finally:  # also after an error: no copy keeps a link to a copy that was not made
+            self._fix_copies(done, live)
 
     def _fate(self, page: Path) -> os.stat_result | str | None:
         """What happens to a page that was not written in this run: None when it holds notes (it is archived),

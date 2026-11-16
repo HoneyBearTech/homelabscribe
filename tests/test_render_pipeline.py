@@ -1004,6 +1004,24 @@ def test_an_error_that_ends_the_run_leaves_no_empty_copy(tmp_path, monkeypatch):
     assert (tmp_path / "services" / "plex.md").exists() and (tmp_path / "services" / "a-beta.md").exists()
 
 
+@pytest.mark.parametrize("error", [RuntimeError, KeyboardInterrupt])
+def test_an_error_in_the_middle_of_archiving_leaves_no_link_to_a_copy_not_made(tmp_path, monkeypatch, error):
+    lab = _plex_and_a_beta_with_notes(tmp_path)
+
+    def stop(fd, data):
+        os.close(fd)
+        raise error
+
+    _on_fill(monkeypatch, b"Notes on plex.", stop)  # A [beta] is archived first, then this stops the run
+    with pytest.raises(error):
+        Renderer(tmp_path).render(lab)
+    archive = tmp_path / "archive" / "services"
+    assert sorted(p.name for p in archive.iterdir()) == ["a-beta.md"]
+    assert "- Used by Plex\n" in (archive / "a-beta.md").read_text()  # not a link to plex.md, never made
+    assert "Notes on plex." in (tmp_path / "services" / "plex.md").read_text()
+    assert not _dead_links(tmp_path)
+
+
 def test_a_page_that_is_no_longer_utf8_when_it_is_copied_is_copied_as_it_is(tmp_path, monkeypatch):
     def save_as_latin1():  # as if saved in another encoding after the old-page clean-up read it as UTF-8
         page = tmp_path / "services" / "plex.md"
