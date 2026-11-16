@@ -418,10 +418,11 @@ def _linked_lab() -> Snapshot:
     )
 
 
-def _remove(out, noted, services=(), hosts=(), before=None) -> dict[str, bytes]:
-    """Render the lab, give the pages in `noted` notes, call `before`, then render the lab without the
-    services and hosts named. Returns the bytes of each page in `noted` just before that second run."""
-    lab = _linked_lab()
+def _remove(out, noted, services=(), hosts=(), before=None, lab=None) -> dict[str, bytes]:
+    """Render the lab (`_linked_lab` unless given), give the pages in `noted` notes, call `before`, then
+    render the lab without the services and hosts named. Returns the bytes of each page in `noted` just
+    before that second run."""
+    lab = lab or _linked_lab()
     Renderer(out).render(lab)
     for rel in noted:
         _with_notes(out / rel, f"Notes on {rel}.")
@@ -635,6 +636,41 @@ def test_links_in_the_notes_and_the_rest_of_the_page_are_kept_with_crlf_and_any_
     assert mine.replace("\n", "\r\n").encode() in tail  # the notes, links and all, byte for byte
     assert copy.count(b"\r\n") == data["services/plex.md"].count(b"\r\n") and b"\n" not in copy.replace(
         b"\r\n", b""
+    )
+
+
+def _titled(title: str) -> Snapshot:
+    """The linked lab with another title for the service "A [beta]"."""
+    lab = _linked_lab()
+    next(s for s in lab.services if s.name == "sonarr").display_name = title
+    return lab
+
+
+def test_a_title_with_an_escaped_bracket_is_read_as_markdown_reads_it(tmp_path):
+    title = "A \\](beta)"  # `A \](beta)`: the bracket is part of the text, as Markdown reads it; page a-beta
+    data = _remove(
+        tmp_path,
+        ["services/plex.md", "hosts/media.md"],
+        ["plex", "sonarr", "overseerr"],
+        ["media"],
+        lab=_titled(title),
+    )
+    archive = tmp_path / "archive"
+    assert (archive / "services" / "plex.md").read_bytes() == _swapped(
+        data["services/plex.md"],
+        ("](../hosts/media.md)", "](../../archive/hosts/media.md)"),
+        (f"- Depends on [{title}](a-beta.md)\n", f"- Depends on {title}\n"),
+        ("- Used by [Overseerr](overseerr.md)", "- Used by Overseerr"),
+    )
+    assert (archive / "hosts" / "media.md").read_bytes() == _swapped(
+        data["hosts/media.md"],
+        (
+            "](../services/docker-vm.md) on [pve](../hosts/pve.md)",
+            "](../../services/docker-vm.md) on [pve](../../hosts/pve.md)",
+        ),
+        (f"| [{title}](../services/a-beta.md) |", f"| {title} |"),
+        ("| [Overseerr](../services/overseerr.md) |", "| Overseerr |"),
+        ("| [Plex](../services/plex.md) |", "| [Plex](../../archive/services/plex.md) |"),
     )
 
 

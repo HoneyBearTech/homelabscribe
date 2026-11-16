@@ -16,10 +16,11 @@ from homelabscribe import notes
 # A page name as `slug` and `coded_name` make it: lower-case letters and digits in runs joined by single
 # hyphens, at most 200 characters (`renderer.SLUG_MAX`), followed by `.md)`.
 _NAME = r"(?=[a-z0-9-]{1,200}\.md\))[a-z0-9]+(?:-[a-z0-9]+)*"
-# The text of a link as the templates write it (titles and host names are not escaped): anything on one
-# line but `](`, so the end of the text is never in doubt. In a table, no `|` either.
-_TEXT = r"(?:[^\]\r\n]|\](?!\())*"
-_CELL = r"(?:[^\]|\r\n]|\](?!\())*"
+# The text of a link as the templates write it (titles and host names are not escaped), read the way
+# Markdown reads it: a backslash escapes the character after it (`\]` is a bracket in the text), and the
+# text ends at the first other `](`. On one line; in a table, no `|` either, other than an escaped `\|`.
+_TEXT = r"(?:\\[^\r\n]|[^\\\]\r\n]|\](?!\())*"
+_CELL = r"(?:\\[^\r\n]|[^\\\]|\r\n]|\](?!\())*"
 
 
 def _link(group: str, folder: str | None, text: str = _CELL) -> str:

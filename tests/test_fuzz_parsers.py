@@ -361,6 +361,9 @@ link_pieces = st.sampled_from(
         "\r",
         notes.START,
         notes.END,
+        "\\]",
+        "\\",
+        "\\|",
     ]
 )
 link_folders = st.sampled_from(["services", "hosts"])
