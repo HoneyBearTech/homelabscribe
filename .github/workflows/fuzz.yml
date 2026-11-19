@@ -31,16 +31,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - env_names
-          - clean_labels
-          - depends_on
-          - ports
-          - container
-          - container_secrets
-          - guest
-          - notes
-          - license
+        target:                                                                                                                                                                      
+            - env_names                                                                                                                                                                
+            - clean_labels                                                                                                                                                             
+            - depends_on                                                                                                                                                               
+            - ports                                                                                                                                                                    
+            - container                                                                                                                                                                
+            - container_secrets              
+            - guest                                                                                                                                                                    
+            - notes                          
+            - license                                                                                                                                                                  
+            - bundle_redact                                                                                                                                                            
+            - html_page                      
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
