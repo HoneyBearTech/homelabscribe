@@ -21,6 +21,8 @@ Every change reaches `main` through a pull request. The `main protection` rulese
 
 This project has one maintainer, and GitHub does not let an author approve their own pull request. So the repository-admin role (the maintainer) has a **pull-request-only bypass** of the approval requirement: the maintainer can merge their own pull request once the checks pass, but cannot push to `main` directly. The practical effect is that every change is still public, still goes through the full set of automated checks, and is still recorded as a pull request, but is not independently reviewed by a second person. OpenSSF Scorecard's Code-Review check therefore scores this repository 0 until a second reviewer exists. That is stated here instead of hidden, and any additional maintainer will be asked to review.
 
+Dependency updates are the exception to the maintainer's merge: Renovate merges its own pull requests (squash) once every required check has passed, after a three-day wait for new versions ([dependencies.md](docs/dependencies.md)). That needs the ruleset to ask for no approving review on them; until it does, a Renovate pull request waits for the maintainer like any other.
+
 ## Access to sensitive resources
 
 Who can reach what, and through which credential. This is the list of people (one) and automation with access to sensitive resources.
