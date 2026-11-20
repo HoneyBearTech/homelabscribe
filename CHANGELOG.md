@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 - Dependency updates are proposed by Renovate (`renovate.json`) instead of Dependabot. It regenerates the hash-pinned lockfiles in `requirements/` with the uv command in each file's header, and also covers the images in `.gitlab-ci.yml`, which used to be bumped by hand.
+- Renovate now merges its own update pull requests (majors included, squash) once every required check passes, after a three-day wait for new versions; security fixes and image rebuilds skip the wait. Nothing is excluded.
 
 ### Fixed
 - The links on an archived page work. A page moved to `archive/services/` or `archive/hosts/` kept its links as they were (`../hosts/media.md`, `sonarr.md`), so they pointed inside `archive/`, where those pages usually are not: in Obsidian they were unresolved, and the HTML copy kept them as `.md` links. Now the links HomelabScribe wrote ("Runs on", "Is the Docker host", "Runs as", a host's table, "Depends on" and "Used by") point at the live page (`../../hosts/media.md`), or at the archived copy of a page archived in the same run, under the name it got (`../../archive/services/sonarr-2.md`); a link to a page that is gone becomes plain text with its name. The notes, links you wrote included, and the rest of the page stay byte for byte, CRLF line endings too. Pages archived before this release are left as they are.
